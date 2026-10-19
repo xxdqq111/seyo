@@ -14,7 +14,7 @@ import path from 'node:path';
 import { PUBLIC_DIR, DATA_DIR, readBody, log, fmtTime } from './util.mjs';
 import {
   stats, listSentences, deleteSentence, search, listEntities, recentUtterances, archive, dimensionMap, graph, dbTables, deleteDimension, updateSentence, pruneDimensions, getDb,
-  openCandidates, listTopics, resetAll, dumpIndex, getSentence, DB_FILE, putNote, putPlaceGeo, getPlaceGeo, allPlaceNames,
+  openCandidates, listTopics, resetAll, dumpIndex, getSentence, DB_FILE, putNote, setSentenceTags, putPlaceGeo, getPlaceGeo, allPlaceNames,
 } from './store.mjs';
 import { handleTurn, opening, getPersona, setPersona, analyze, watchCheck, notePoll, ackSpoken, judgeTimes, watchState, watchConfigure, watchClearLog, watchSetMood } from './engine.mjs';
 import { polishMany, narrateGroups, curateEvents, judgePlaces } from './understand.mjs';
@@ -309,6 +309,11 @@ async function api(req, res, pathname, query) {
     if (method === 'GET') {
       const one = getSentence(id);
       return json(res, one ? 200 : 404, one || { error: '未找到' });
+    }
+    /* 改时间 / 人物 / 地点 / 事件标签（家人端手改） */
+    if (method === 'POST') {
+      const one = setSentenceTags(id, body || {});
+      return json(res, one ? 200 : 404, one ? { ok: true, item: one, stats: stats() } : { error: '未找到' });
     }
     if (method === 'DELETE') {
       deleteSentence(id);

@@ -732,6 +732,45 @@ export function pruneDimensions() {
   return removed;
 }
 
+
+/**
+ * 改一条记忆的**时间 / 人物 / 地点 / 事件**标签（家人端手改）
+ * ==========================================================================
+ * 这些本来是从老人原话里自动抽的，抽错很正常（"国棉三厂"没进词表、
+ * "车间"被当成地点）。家人最清楚对不对，所以让人直接改。
+ *
+ * 改完要**重挂维度**：光改 sentences 里的 JSON 列没用，
+ * 图谱/地图/维度面板读的是 *_links 关联表。
+ * attachDimensions 会先删旧关联再按新值挂，不会越挂越多。
+ */
+export function setSentenceTags(id, patch = {}) {
+  const row = getSentence(id);
+  if (!row) return null;
+  const persons = Array.isArray(patch.persons) ? patch.persons : row.persons;
+  const places = Array.isArray(patch.places) ? patch.places : row.places;
+  const events = Array.isArray(patch.events) ? patch.events : row.events;
+  const year = patch.year !== undefined
+    ? (patch.year === null || patch.year === '' ? null : Number(patch.year))
+    : row.year;
+  const y = Number.isFinite(year) ? year : null;
+  const timeLabel = patch.time_label !== undefined ? String(patch.time_label || '') : (row.time_label || '');
+
+  db.prepare('UPDATE sentences SET persons = ?, places = ?, events = ?, year = ?, time_label = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(persons), JSON.stringify(places), JSON.stringify(events), y, timeLabel, nowISO(), id);
+
+  /* 时间也要重挂 —— 没年份但有说法（"年轻时"）就按说法挂 */
+  const times = (y || timeLabel)
+    ? [{ raw: timeLabel || `${y} 年`, label: timeLabel || `${y} 年`, year: y, kind: y ? 'abs' : 'era' }]
+    : [];
+  const persona = getMeta('persona') || {};
+  attachDimensions(db, id, { times, persons, places, events }, { birthYear: Number(persona.birth_year) || null });
+
+  const next = getSentence(id);
+  indexRemove(id);
+  indexAdd(id, `${next.statement} ${next.asks.join(' ')} ${next.keywords.join(' ')} ${[...next.persons, ...next.places, ...next.events].join(' ')}`);
+  return next;
+}
+
 /** 改一条记忆（家人端可以直接改文字 / 状态） */
 export function updateSentence(id, patch = {}) {
   const row = getSentence(id);
