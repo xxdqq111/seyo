@@ -440,6 +440,7 @@ function timelineOf(dbi, status) {
       estimated: Boolean(estimated),
       key,
       note: getNote(key),
+      needNote: items.length >= 2 && !getNote(key),   // 前端据此自动触发合并
       items,
     };
   });

@@ -225,6 +225,7 @@ async function load() {
   safe('统计卡片', renderCards);
   safe('陪伴守望', renderWatch);
   safe('时间轴', renderTimeline);
+  maybeNarrate();          // 有段还没合并成一句话 → 后台补，补完自动重画
   safe('四个维度', renderDims);
   safe('主句库', () => renderLibrary(DATA.sentences));
   safe('人物图谱', renderGraph);
@@ -315,6 +316,23 @@ let grouping = '';        // '' | person | time | place | event
 function renderMemories() {
   renderGroupBar();
   if (!($('#libTable').innerHTML || '').trim()) renderLibrary(DATA.sentences || []);
+}
+
+/* 时间轴缺「合并叙述」（一个时间段里几条记忆还没合成一句话）→ 后台补一次再重画。
+   不 await：页面先显示逐条，补齐后自动换成一句话。
+   这一步以前是纯手动（要自己跑 /api/timeline/narrate），清了库或者来了新记忆之后
+   时间轴就退回逐条显示，看着像"没整理过"。 */
+let narrating = false;
+async function maybeNarrate() {
+  const tl = (DATA.archive || {}).timeline || [];
+  if (narrating || !tl.some((g) => g.needNote)) return;
+  narrating = true;
+  try {
+    await fetch('/api/timeline/narrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    await load();               // 重新拉一遍，时间轴就有 note 了
+  } catch { /* 失败就逐条显示，也能看 */ } finally {
+    narrating = false;
+  }
 }
 
 /** 分组按钮那一排 */
