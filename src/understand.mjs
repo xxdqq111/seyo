@@ -48,6 +48,19 @@ function parseJsonObject(text) {
       return pre + JSON.stringify(v);
     })
     .replace(/:\s*([,}\]])/g, ':""$1')
+    /* **数组里没加引号的裸元素**：places:[杭州] → places:["杭州"]
+       上面那条只管冒号后面的值，数组元素前面没有冒号，所以管不着。
+       漏了这条的后果：`places:[杭州]` 解不开 → 整个对象 parse 失败 →
+       understand 返回 null → 连改口识别都跟着失效。 */
+    .replace(/\[([^\[\]{}"]*)\]/g, (m, inner) => {
+      const parts = String(inner).split(',').map((x) => x.trim()).filter(Boolean);
+      if (!parts.length) return '[]';
+      return '[' + parts.map((v) => {
+        if (/^-?\d+(\.\d+)?$/.test(v)) return v;
+        if (/^(true|false|null)$/i.test(v)) return v.toLowerCase();
+        return JSON.stringify(v);
+      }).join(',') + ']';
+    })
     .replace(/,\s*([\]}])/g, '$1');
   try {
     const v = JSON.parse(t);
