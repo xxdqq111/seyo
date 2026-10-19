@@ -6,7 +6,7 @@
  * 对不上的地名不会瞎标，会列在下面提示"没能定位"。
  */
 
-import { getPlaceGeo } from './store.mjs';
+import { getPlaceGeo, getNote } from './store.mjs';
 
 /** 省 / 自治区 / 直辖市（省会坐标，用于只讲到省时） */
 const PROVINCES = {
@@ -205,8 +205,19 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
       located: lng !== null,
       basis,
       approx,
+      /* 这个地点的几条记忆也合成一句话（跟时间轴同一套缓存 timeline_notes）。
+         没合过就是空串，前端退回逐条显示。 */
+      key: 'place:' + rows.map((r) => r.statement).slice().sort().join('|').slice(0, 400),
+      note: '',
+      needNote: false,
     });
   }
+  // 合并叙述：缓存里有就用，没有就留给前端触发
+  for (const p of out) {
+    if (p.key) p.note = getNote(p.key) || '';
+    p.needNote = Array.isArray(p.memories) && p.memories.length >= 2 && !p.note;
+  }
+
   // 排序：有年份的按年份，同年按首次讲述顺序；无年份的按讲述顺序排后面
   out.sort((a, b) => {
     if (a.year && b.year) return a.year - b.year || a.first_seq - b.first_seq;
@@ -240,6 +251,9 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
     for (const sp of h.spurs) if (sp.name && !uniq.some((x) => x.name === sp.name)) uniq.push(sp);
     h.spurs = uniq;
     h.label = h.city || h.name;                        // 旗子上只写城市名
+    h.key = 'place:' + h.memories.map((m) => m.statement).slice().sort().join('|').slice(0, 400);
+    h.note = getNote(h.key) || '';
+    h.needNote = h.memories.length >= 2 && !h.note;
     // 同一面旗下的记忆按年份排一下，看着顺
     h.memories.sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || a.seq - b.seq);
   }

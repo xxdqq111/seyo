@@ -751,7 +751,8 @@ function showPlace(p) {
   d.innerHTML = `<button class="place-pop-x" title="关闭">✕</button>
     <h3>${esc(p.label)}</h3>
     <div class="place-pop-meta">${esc(when)}${p.spurs && p.spurs.length ? ' · ' + esc(p.spurs.map((sp) => sp.name).join('、')) : ''}</div>
-    <ul>${list.map((m) => `<li>${esc(m.statement)}</li>`).join('') || '<li class="muted">暂无记录</li>'}</ul>
+    ${p.note ? `<p class="place-pop-note">${esc(p.note)}</p>` : ''}
+    <ul class="${p.note ? 'place-pop-under' : ''}">${list.map((m) => `<li>${esc(m.statement)}</li>`).join('') || '<li class="muted">暂无记录</li>'}</ul>
     <div class="place-pop-basis">定位依据：${esc(p.basis || '—')}</div>`;
   document.body.appendChild(d);
   d.querySelector('.place-pop-x').onclick = hidePlace;

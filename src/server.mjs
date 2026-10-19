@@ -216,9 +216,15 @@ async function api(req, res, pathname, query) {
     return json(res, 200, { ok: true, pending: rows.length, changed });
   }
   if (pathname === '/api/timeline/narrate' && method === 'POST') {
-    /* 一个时间段里散着好几条记忆（同一件事）→ 合成一句话 */
+    /* 一个时间段 / 一个地点里散着好几条记忆（同一件事）→ 合成一句话 */
     const arch = archive();
-    const todo = (arch.timeline || []).filter((g) => g.items.length >= 2 && !g.note);
+    const foot = footprints(getDb(), { hometown: getPersona().hometown || '', hometownCoord: null });
+    const todo = [
+      ...(arch.timeline || []).filter((g) => g.items.length >= 2 && !g.note)
+        .map((g) => ({ key: g.key, label: g.label, items: g.items })),
+      ...(((foot && foot.places) || []).filter((p) => p.located && p.needNote))
+        .map((p) => ({ key: p.key, label: p.label, items: (p.memories || []).map((m) => ({ statement: m.statement })) })),
+    ].filter((g) => g.key);
     if (!todo.length) return json(res, 200, { ok: true, pending: 0, changed: 0 });
     let changed = 0;
     for (let k = 0; k < todo.length; k += 6) {
