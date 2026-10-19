@@ -347,13 +347,24 @@ export async function judgeTimes(ids, { sessionId = 'default', history = [] } = 
  * 把老人讲的一段话整理成若干条主句，存进独立数据库
  * @returns {{created:Array, merged:Array, skipped:number}}
  */
-export function distill(rawText, { sessionId = 'default', status = 'confirmed', source = '', birthYear = null, polished = '', lifeEvent = null } = {}) {
+export function distill(rawText, { sessionId = 'default', status = 'confirmed', source = '', birthYear = null, polished = '', lifeEvent = null, entities = null } = {}) {
   const created = [];
   const merged = [];
   let skipped = 0;
 
   for (const clause of splitClauses(rawText)) {
     const a = analyze(clause);
+    /* 实体优先用**大模型抽的** —— 正则抽出来常是碎片：
+         "我小时候在杭州长大，那时候穷" → 人物"时候穷"、地点"杭州长大"、年份 1853
+       注意：模型给了**空数组**也要照用（它是在说"这里没有人名"），
+       只有它根本没给 entities 时才退回 analyze 的正则结果 ——
+       否则 "时候穷" 这种碎片会漏过来。 */
+    if (entities && typeof entities === 'object') {
+      if (Array.isArray(entities.persons)) a.persons = entities.persons;
+      if (Array.isArray(entities.places)) a.places = entities.places;
+      if (Array.isArray(entities.events)) a.events = entities.events;
+      if (Array.isArray(entities.times) && entities.times.length) a.times = entities.times;
+    }
     const statement = bare(a.statement);
     if (statement.length < 4) { skipped += 1; continue; }
 
@@ -850,7 +861,7 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
   if (touchedMerged?.id && touchedMerged.statement) touched.set(touchedMerged.id, touchedMerged.statement);
 
   if (tellable && substantial && !declined && !fragmentAbsorbed && !request && !correction) {
-    const distilled = distill(raw, { sessionId, status: 'confirmed', source: raw, birthYear: Number(persona.birth_year) || null, polished: said ? said.polished : '', lifeEvent: said ? (said.scope === 'major' ? 2 : (said.scope === 'detail' ? 1 : 0)) : null });
+    const distilled = distill(raw, { sessionId, status: 'confirmed', source: raw, birthYear: Number(persona.birth_year) || null, polished: said ? said.polished : '', entities: said ? said.entities : null, lifeEvent: said ? (said.scope === 'major' ? 2 : (said.scope === 'detail' ? 1 : 0)) : null });
     for (const m of distilled.merged) touched.set(m.id, m.statement);
     const first = distilled.created[0];
     if (first) {

@@ -23,6 +23,12 @@
  * ========================================================================== */
 import { speak, llmConfig } from './llm.mjs';
 
+/** 从模型输出里取一个干净的字符串数组 */
+function strList(v, max = 8) {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x == null ? '' : x).trim()).filter(Boolean).slice(0, max);
+}
+
 export const INTENTS = ['tell', 'ask', 'mood', 'ack', 'recall', 'command'];
 export const SLOTS = ['when', 'where', 'who', 'what', 'how'];
 export const MOOD_LEVELS = ['low', 'uneasy', 'flat', 'warm'];
@@ -139,7 +145,22 @@ ${hist}
 
    **"detail" 不是丢掉**，是挂到那件事下面当铺垫。别把细节判成 none。
 
-10. polished —— 同一件事的**润色版**，给家人读的：
+10. entities —— 把这句话里的**人物 / 地点 / 事件 / 时间**抽出来。
+   这四样以前是正则+词表抽的，抽出来的常是碎片：
+     原话"我小时候在杭州长大，那时候穷，吃不饱"
+       → 人物抽成"时候穷"、地点抽成"杭州长大"、年份抽成 1853
+   你抽时要是**真正的实体**，不是从原文切下来的字：
+   · persons —— 人名或称呼（"张师傅""老伴秀兰""我孙子小明"）。不许出现"时候""穷"这种
+   · places  —— 地名或场所（"杭州""国棉三厂""细纱车间""剪子巷"）
+   · events  —— 做过的事（"当挡车工""结婚""分房""开餐馆"）
+   · times   —— 时间说法，每条三样：
+       {"raw":"原话里的说法","label":"能看懂的说法","year":四位年份或 null}
+       "我年轻时" → {"raw":"年轻时","label":"青年时期","year":null}
+       "六八年"   → {"raw":"六八年","label":"1968 年","year":1968}
+       推不出年份就填 null，**别编**。
+   · 没有就给空数组 []
+
+11. polished —— 同一件事的**润色版**，给家人读的：
    · 像写小传那样通顺、干净，可以调整语序、合并啰嗦的地方
    · **但不能加信息**：他没说的人、地方、数字、原因，一个都不能添
    · 不要"我记得""那时候"这种口头过渡词
@@ -152,7 +173,7 @@ ${hist}
 【输出格式】
 严格只输出一个**合法 JSON**，键和字符串都要加双引号。不要解释、不要代码块。
 
-{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
+{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
 
   return [
     { role: 'system', content: system },
@@ -218,6 +239,25 @@ export async function understand({ persona, text = '', history = [] }) {
     slot: o.fragment === true ? slot : '',
     mood,
     health,
+    /* 实体：模型抽的比正则准得多（正则会把"时候穷"当人物、年份抽成 1853）。
+       抽不出来就给空数组，engine 那边会退回 analyze() 的正则结果。 */
+    entities: {
+      persons: strList(o.entities && o.entities.persons),
+      places: strList(o.entities && o.entities.places),
+      events: strList(o.entities && o.entities.events),
+      times: Array.isArray(o.entities && o.entities.times)
+        ? o.entities.times.filter((x) => x && (x.label || x.raw)).slice(0, 3).map((x) => {
+          const y = Number(x.year);
+          const ok = Number.isFinite(y) && y >= 1900 && y <= new Date().getFullYear();
+          return {
+            raw: String(x.raw || x.label).trim().slice(0, 20),
+            label: String(x.label || x.raw).trim().slice(0, 20),
+            year: ok ? Math.round(y) : null,
+            kind: ok ? 'abs' : 'era',
+          };
+        })
+        : [],
+    },
     statement: String(o.statement || '').trim().slice(0, 60),
     scope: ['major', 'detail', 'none'].includes(String(o.scope)) ? String(o.scope) : 'major',
     polished: String(o.polished || '').trim().slice(0, 80),
