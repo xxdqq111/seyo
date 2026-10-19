@@ -134,7 +134,6 @@
   background: none; border: none; padding: 0;
 }
 
-.typing { font-size: var(--fs-md); color: var(--dim); padding: 0 6px; }
 
 .say { display: flex; gap: 10px; align-items: stretch; }
 .mic {

@@ -432,8 +432,6 @@ async function say(raw) {
   $('micBtn').disabled = true;
   $('sendBtn').disabled = true;
   $('input').value = '';
-  $('typing').hidden = false;
-  $('typing').textContent = `您说：${text}`;
   bubble('you', text);
   status('think', '岁语在想……');
   setFace('thinking');
@@ -472,7 +470,6 @@ async function say(raw) {
     // 这里是"请求结束、恢复可用"，不是"无条件亮起来" ——
     // 输入框这时已经清空了，所以还是得按内容决定亮不亮
     $('sendBtn').disabled = !$('input').value.trim();
-    $('typing').hidden = true;
     $('input').focus();
   }
 }
@@ -667,8 +664,6 @@ async function listenStart() {
     $('micText').textContent = '我在听……';
     status('idle', '正在聆听……');
     setFace('listening');
-    $('typing').hidden = false;
-    $('typing').textContent = '……';
   } catch (e) {
     status('idle', e?.name === 'NotAllowedError'
       ? '麦克风没开权限 —— 也可以直接打字'
@@ -697,7 +692,6 @@ async function listenStop() {
 
   // 太短的多半是误触，不值得跑一次识别
   if (heldMs < 400 || audio.length < recRate * 0.3) {
-    $('typing').hidden = true;
     status('idle', '在听您说话');
     setFace('idle');
     return;
@@ -715,7 +709,6 @@ async function listenStop() {
     }
     console.debug('[语音] 录到', audio.length, '个采样，峰值', peak.toFixed(4));
     if (peak < 0.01) {
-      $('typing').hidden = true;
       status('idle', '没听到声音 —— 看看麦克风是不是静音了');
       setFace('idle');
       S.lastMicPeak = peak;
@@ -725,7 +718,6 @@ async function listenStop() {
 
     const pcm = await toPcm16k(audio, recRate);
     const r = await api('/api/listen', { pcm: bytesToB64(pcm), rate: 16000 });
-    $('typing').hidden = true;
     if (!r.ok) {
       status('idle', `没听清（${r.error || '识别服务没起来'}）—— 也可以直接打字`);
       setFace('idle');
@@ -735,7 +727,6 @@ async function listenStop() {
     if (t) say(t);
     else { status('idle', '没听清，您再说一遍'); setFace('idle'); }
   } catch (e) {
-    $('typing').hidden = true;
     status('idle', '没听清 —— 也可以直接打字');
     setFace('idle');
     console.warn('语音识别失败：', e);
