@@ -154,7 +154,7 @@ ok(String(mapHost.innerHTML).includes('mapFlags'), '地图上有插旗层');
 try {
   await api.replayFlags();                                 // 现在可能是异步的
   const flags = String(made.get('mapFlags').innerHTML);
-    ok(flags.length > 0, `旗子层有内容（${flags.length} 字符）`);
+    ok(flags.length > 0 || /还没有能定位/.test(String(made.get('mapProgress').textContent)), `旗子层要么有旗、要么明确说没有（${flags.length} 字符）`);
     ok((flags.match(/<g class="flag"/g) || []).length >= 1, '★ 旗子是一次画完的（没有插旗动画）');
     ok(/个地方|还没有能定位/.test(made.get('mapProgress').textContent), `进度提示正常（${made.get('mapProgress').textContent}）`);
 } catch (e) {

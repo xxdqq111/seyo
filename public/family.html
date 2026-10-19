@@ -31,7 +31,26 @@
     <div class="page-head">
       <h1>家人查看端</h1>
       <p class="sub" id="subtitle">老人在设备上讲的话，都会整理成记忆存在这里</p>
+      <div class="head-acts">
+        <button class="mini" id="btnEditPersona">✎ 改一下基本信息</button>
+        <button class="mini danger" id="btnResetAll">清空所有记忆和对话</button>
+      </div>
     </div>
+
+  <!-- 改基本信息（称呼 / 出生年份 / 老家）-->
+  <div class="modal" id="personaModal" hidden>
+    <div class="modal-box">
+      <h3>基本信息</h3>
+      <p class="modal-hint">这几项决定了岁语怎么称呼他、怎么算年份、地图默认落在哪儿。</p>
+      <label class="fld"><span>称呼</span><input id="pfCall" placeholder="爷爷"></label>
+      <label class="fld"><span>出生年份</span><input id="pfBirth" inputmode="numeric" placeholder="1948"></label>
+      <label class="fld"><span>老家</span><input id="pfHome" placeholder="北京"></label>
+      <div class="modal-acts">
+        <button class="mini" id="pfCancel">取消</button>
+        <button class="mini primary" id="pfSave">保存</button>
+      </div>
+    </div>
+  </div>
 
   <div class="banner" id="banner" hidden></div>
   <div class="banner" id="errBox" hidden style="background:#fff0ec;border-color:#f0c4b4;color:#8a3a1c"></div>
@@ -132,6 +151,7 @@ const api = async (u, opt = {}) => {
   }
 };
 let DATA = null;
+let personaAsked = false;   // 基本信息没填时只自动弹一次
 
 /** 出错就写在页面上，绝不白屏 */
 function showError(where, e) {
@@ -160,10 +180,24 @@ async function load() {
   }
   try {
     const p = DATA.persona || {};
-    $('#subtitle').textContent = [p.elder_call + (p.elder_name ? '（' + p.elder_name + '）' : ''), p.birth_year ? p.birth_year + ' 年生' : '', p.hometown].filter(Boolean).join(' · ');
-    if (DATA.preview) {
+    PERSONA = p;
+    const basicMissing = !String(p.elder_call || '').trim()
+      || !String(p.birth_year || '').trim()
+      || !String(p.hometown || '').trim();
+    $('#subtitle').textContent = [
+      String(p.elder_call || '').trim(),
+      p.birth_year ? p.birth_year + ' 年生' : '',
+      String(p.hometown || '').trim(),
+    ].filter(Boolean).join(' · ') || '（还没填基本信息）';
+
+    $('#banner').hidden = true;
+    if (basicMissing) {
+      /* 称呼/出生年份/老家缺了 —— 直接弹出来让人填。
+         没有这几项，岁语不知道该管他叫什么、年份也算不出来、地图也没处落。
+         但只在**页面刚打开时**弹一次，别每次刷新数据都蹦出来打断人。 */
       $('#banner').hidden = false;
-      $('#banner').innerHTML = '📭 <b>老人还没开始讲</b>，下面显示的是<b>界面示例</b>（不是真实内容，未存进数据库）。等他跟岁语聊过几句，这里就换成真实记忆。';
+      $('#banner').innerHTML = '✎ 还没填<b>称呼 / 出生年份 / 老家</b> —— 填了岁语才知道怎么叫他、怎么算年份。';
+      if (!personaAsked) { personaAsked = true; openPersona(); }
     } else if ((DATA.stats || {}).sentences === 0) {
       $('#banner').hidden = false;
       $('#banner').innerHTML = '📭 还没有任何记忆。请老人在对话界面跟岁语聊几句，这里会自动出现内容。';
@@ -847,6 +881,84 @@ $('#btnPrune').onclick = async () => {
   await load(); await renderDb();
 };
 $('#btnReloadDb').onclick = async () => { await load(); await renderDb(); };
+
+/* ==================================================================
+   改基本信息（称呼 / 出生年份 / 老家）
+   ------------------------------------------------------------------
+   这几项以前写死在库里，改一次要手动动数据库。现在页面上直接改。
+   注意：改了**不会**回头重算已有记忆的年份 —— 那是历史事实，不该事后改写。
+   ================================================================== */
+let PERSONA = null;
+
+function openPersona() {
+  const p = PERSONA || {};
+  $('#pfCall').value = p.elder_call || '';
+  $('#pfBirth').value = p.birth_year || '';
+  $('#pfHome').value = p.hometown || '';
+  $('#personaModal').hidden = false;
+  $('#pfCall').focus();
+}
+function closePersona() { $('#personaModal').hidden = true; }
+
+$('#btnEditPersona').onclick = openPersona;
+$('#pfCancel').onclick = closePersona;
+$('#personaModal').onclick = (e) => { if (e.target === $('#personaModal')) closePersona(); };
+$('#pfSave').onclick = async () => {
+  const patch = {
+    elder_call: $('#pfCall').value.trim() || '爷爷',
+    birth_year: Number($('#pfBirth').value.trim()) || null,
+    hometown: $('#pfHome').value.trim(),
+  };
+  const btn = $('#pfSave');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/persona', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }).then((x) => x.json());
+    PERSONA = r.persona || patch;
+    closePersona();
+    await load();          // 重新拉一遍，标题、地图兜底都跟着变
+  } catch (e) {
+    showError('保存基本信息', e);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+/* ==================================================================
+   清空所有记忆和对话
+   ------------------------------------------------------------------
+   两级确认：第一次点变成"真的清空？"，再点才执行。
+   清的是**记忆 + 对话记录**，基本信息和 API key 不动。
+   清之前先把库备份一份，万一误点还能捞回来。
+   ================================================================== */
+$('#btnResetAll').onclick = async () => {
+  const b = $('#btnResetAll');
+  if (b.dataset.armed !== '1') {
+    b.dataset.armed = '1';
+    b.textContent = '真的清空？再点一下';
+    setTimeout(() => { b.dataset.armed = '0'; b.textContent = '清空所有记忆和对话'; }, 5000);
+    return;
+  }
+  b.dataset.armed = '0';
+  b.disabled = true;
+  b.textContent = '正在清空……';
+  try {
+    const r = await fetch('/api/reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // 连称呼/出生年份/老家一起清 —— 清完自动弹出让人重新填
+      body: JSON.stringify({}),
+    }).then((x) => x.json());
+    b.textContent = '已清空';
+    setTimeout(() => { b.textContent = '清空所有记忆和对话'; b.disabled = false; }, 1600);
+    await load();          // 页面跟着变空
+  } catch (e) {
+    showError('清空', e);
+    b.textContent = '清空所有记忆和对话';
+    b.disabled = false;
+  }
+};
+
   // 全局兜底：任何漏网的错都写到页面上，不让你看到白屏
   window.addEventListener('error', (e) => showError('页面脚本', e.error || e.message));
   window.addEventListener('unhandledrejection', (e) => showError('异步操作', e.reason));

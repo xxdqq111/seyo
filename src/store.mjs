@@ -1052,6 +1052,10 @@ export function resetAll({ keepPersona = true } = {}) {
   docGrams.clear();
   kindCache.clear();
   if (persona) setMeta('persona', persona);
+  /* keepPersona=false → 连基本信息一起清掉（称呼 / 出生年份 / 老家）。
+     注意：上面 getMeta 拿到的还是**老的** persona，这里必须真的删，
+     不然那句 if (persona) 等于什么都没做。 */
+  else setMeta('persona', null);
   dumpIndex();
   return stats();
 }

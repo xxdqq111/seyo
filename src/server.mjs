@@ -29,7 +29,6 @@ async function visionStatusLive() {
   try { st.live = await visionHealth(); } catch { st.live = null; }
   return st;
 }
-import { PREVIEW } from './preview.mjs';
 import { footprints, lookup, bboxOf, cityIn, simplifyMap } from './geo.mjs';
 
 const argv = process.argv.slice(2);
@@ -386,12 +385,10 @@ async function api(req, res, pathname, query) {
 
   // 家人端：一个口子把要用的都给全（时间轴 / 四维 / 主句库 / 关系 / 统计）
   if (pathname === '/api/family') {
+    /* **不再给示例数据。**
+       以前库里是空的时候会返回一份 PREVIEW，页面看着像已经有内容了，
+       容易让人以为记忆真的存在 —— 假的就是假的，空就显示空。 */
     const st = stats();
-    const empty = st.sentences === 0;
-    if (empty && query.get('preview') !== '0') {
-      // 库里还没有真东西：给一份不落库的预览，让家人先看到界面长什么样
-      return json(res, 200, { ...PREVIEW, persona: getPersona() });
-    }
     // listSentences 返回的是数组（不是 {items}），别解构错了
     const items = listSentences({ limit: 1000 });
     return json(res, 200, {
@@ -428,7 +425,8 @@ async function api(req, res, pathname, query) {
   if (pathname === '/api/candidates') return json(res, 200, { items: openCandidates(20) });
   if (pathname === '/api/topics') return json(res, 200, { items: listTopics(20) });
   if (pathname === '/api/stats') return json(res, 200, stats());
-  if (pathname === '/api/reset' && method === 'POST') return json(res, 200, resetAll({ keepPersona: body.keepPersona !== false }));
+  /* 默认**连基本信息一起清**（称呼/出生年份/老家），要保留才显式传 keepPersona:true */
+  if (pathname === '/api/reset' && method === 'POST') return json(res, 200, resetAll({ keepPersona: body.keepPersona === true }));
   if (pathname === '/api/dump' && method === 'POST') return json(res, 200, dumpIndex());
   if (pathname === '/api/db' && method === 'GET') {
     // 直接把数据库文件给你（想用 SQLite 工具打开就拿这个）

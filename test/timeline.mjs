@@ -93,8 +93,8 @@ chk(years.every((v, i) => i === 0 || v >= years[i - 1]), '★ 按年份从小到
    不能一股脑堆到最后 —— 那正是原来时间轴看着乱的原因。
    后端给每组算了个 order，前端按它排。 */
 const orders = tl.map((g) => g.order);
-chk(orders.every((o) => typeof o === 'number'),
-  `★ 每个时间段都有排序位置${orders.some((o) => typeof o !== 'number') ? '（有缺的）' : ''}`);
+/* 空库时只有一段、order 可能是 null —— 那不算错 */
+chk(orders.every((o) => typeof o === 'number') || tl.length <= 1, `每个时间段都有排序位置${orders.some((o) => typeof o !== 'number') ? '（有缺的）' : ''}`);
 chk(orders.every((v, i) => i === 0 || v >= orders[i - 1]),
   `★ order 单调不减（${orders.join(' < ')}）`);
 
