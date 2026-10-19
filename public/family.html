@@ -52,6 +52,23 @@
     </div>
   </div>
 
+  <!-- 改一条记忆的时间 / 人物 / 地点 / 事件标签 -->
+  <div class="modal" id="tagModal" hidden>
+    <div class="modal-box">
+      <h3>改这条记忆的标签</h3>
+      <p class="modal-hint" id="tagStmt"></p>
+      <label class="fld"><span>时间说法</span><input id="tgTime" placeholder="青年时期 / 1968 年"></label>
+      <label class="fld"><span>年份（四位，可空）</span><input id="tgYear" inputmode="numeric" placeholder="1968"></label>
+      <label class="fld"><span>人物（逗号分隔）</span><input id="tgPersons" placeholder="张师傅, 老伴秀兰"></label>
+      <label class="fld"><span>地点（逗号分隔）</span><input id="tgPlaces" placeholder="国棉三厂, 细纱车间"></label>
+      <label class="fld"><span>事件（逗号分隔）</span><input id="tgEvents" placeholder="当挡车工"></label>
+      <div class="modal-acts">
+        <button class="mini" id="tgCancel">取消</button>
+        <button class="mini primary" id="tgSave">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div class="banner" id="banner" hidden></div>
   <div class="banner" id="errBox" hidden style="background:#fff0ec;border-color:#f0c4b4;color:#8a3a1c"></div>
   <div class="cards" id="cards"></div>
@@ -371,10 +388,71 @@ function renderLibrary(items, info) {
         <td>${esc(s.time_label || (s.year ? s.year + ' 年' : '—'))}</td>
         <td>${[...(s.persons || []), ...(s.places || []), ...(s.events || [])].map((x) => `<span class="pill">${esc(x)}</span>`).join('') || '—'}</td>
         <td><span class="pill green">已记下</span>
-          <div class="muted" style="font-size:12px">置信 ${s.confidence}　被问 ${s.asked_count ?? 0} 次</div></td>
+          <div class="muted" style="font-size:12px">置信 ${s.confidence}　被问 ${s.asked_count ?? 0} 次</div>
+          <button class="mini tag-btn" data-id="${esc(s.id)}" data-seq="${esc(s.seq ?? '')}" title="改时间/人物/地点/事件">✎ 改标签</button></td>
       </tr>`).join('')}</tbody>`
     : '<tbody><tr><td class="empty">还没有内容</td></tr></tbody>';
+
+  // 每行的「✎ 改标签」→ 打开标签编辑弹窗
+  document.querySelectorAll('#libTable .tag-btn').forEach((b) => {
+    b.onclick = () => {
+      const row = items.find((x) => String(x.id) === b.dataset.id);
+      if (row) openTags(row);
+    };
+  });
 }
+
+/* ==================================================================
+   改一条记忆的时间 / 人物 / 地点 / 事件
+   ------------------------------------------------------------------
+   这四个本来是从原话里自动抽的，抽错很正常（"车间"当地点、
+   "时候穷"当人物、年份抽成 1853）。家人最清楚对不对，所以让人直接改。
+   改完后端会**重挂维度关联**（图谱/地图/维度面板读的是关联表）。
+   ================================================================== */
+function splitTags(v) {
+  return String(v || '').split(/[,，、;；\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 8);
+}
+
+function openTags(row) {
+  $('#tagStmt').textContent = row.statement || '';
+  $('#tgTime').value = row.time_label || '';
+  $('#tgYear').value = row.year || '';
+  $('#tgPersons').value = (row.persons || []).join('，');
+  $('#tgPlaces').value = (row.places || []).join('，');
+  $('#tgEvents').value = (row.events || []).join('，');
+  $('#tagModal').dataset.id = row.id;
+  $('#tagModal').hidden = false;
+  $('#tgPersons').focus();
+}
+function closeTags() { $('#tagModal').hidden = true; }
+
+$('#tgCancel').onclick = closeTags;
+$('#tagModal').onclick = (e) => { if (e.target === $('#tagModal')) closeTags(); };
+$('#tgSave').onclick = async () => {
+  const id = $('#tagModal').dataset.id;
+  const btn = $('#tgSave');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/sentences/' + encodeURIComponent(id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        time_label: $('#tgTime').value.trim(),
+        year: $('#tgYear').value.trim() === '' ? null : Number($('#tgYear').value.trim()),
+        persons: splitTags($('#tgPersons').value),
+        places: splitTags($('#tgPlaces').value),
+        events: splitTags($('#tgEvents').value),
+      }),
+    }).then((x) => x.json());
+    if (r.error) throw new Error(r.error);
+    closeTags();
+    await load();            // 重新拉：时间轴/地图/维度都跟着变
+  } catch (e) {
+    showError('保存标签', e);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 $('#btnSearch').onclick = async () => {
   const q = $('#q').value.trim();
