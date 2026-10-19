@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>数字人调试</title>
+<link rel="stylesheet" href="/avatar.css">
+<style>
+  body { margin: 0; background: #fbf7f0; font-family: "Microsoft YaHei", sans-serif; padding: 20px; }
+  h2 { margin: 0 0 10px; font-size: 15px; color: #6b6154; font-weight: 600; }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; }
+  .cell { text-align: center; }
+  .big { width: 420px; }
+  .small { width: 150px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .bar button {
+    font: inherit; font-size: 14px; padding: 8px 14px; min-height: 40px; cursor: pointer;
+    border: 1px solid #e7dfd2; border-radius: 10px; background: #fff; color: #4a443b;
+  }
+  .bar button.on { background: #b4531f; border-color: #b4531f; color: #fff; font-weight: 700; }
+  .stage { background: #fff; border: 1px solid #e7dfd2; border-radius: 20px; padding: 10px; }
+</style>
+</head>
+<body>
+
+<h2>大图（看细节）</h2>
+<div class="row">
+  <div class="cell"><div class="stage big" id="big"></div><div id="bigFace">idle</div></div>
+  <div class="cell"><div class="stage small" id="small"></div><div>小尺寸</div></div>
+</div>
+
+<div class="bar" id="faces"></div>
+
+<script src="/avatar.js"></script>
+<script>
+const av = window.SeyoAvatar;
+av.mount(document.getElementById('big'));
+av.mount(document.getElementById('small'));
+
+const names = Object.keys(av.faces);
+document.getElementById('faces').innerHTML = names
+  .map((n) => `<button data-n="${n}">${n}</button>`).join('');
+document.querySelectorAll('#faces button').forEach((b) => {
+  b.onclick = () => {
+    av.setFace(b.dataset.n);
+    document.getElementById('bigFace').textContent = b.dataset.n;
+    document.querySelectorAll('#faces button').forEach((x) => x.classList.toggle('on', x === b));
+  };
+});
+document.querySelector('#faces button').classList.add('on');
+
+// ?face=happy 直接看某个表情；?m=0.8 强制张口幅度
+const q = new URLSearchParams(location.search);
+if (q.get('face')) av.setFace(q.get('face'));
+if (q.get('m')) document.querySelectorAll('.mouth').forEach((m) => m.style.setProperty('--m', q.get('m')));
+</script>
+</body>
+</html>

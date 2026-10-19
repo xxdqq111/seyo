@@ -1,0 +1,5 @@
+﻿backup/
+data/
+model/
+node_modules/
+*.bak

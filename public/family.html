@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#faf6ef">
+<title>岁语</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/family.css">
+</head>
+<body>
+<header class="site-nav">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-mark">岁</span>
+      <span class="brand-text">
+        <b>岁语</b>
+      
+      </span>
+    </a>
+    <nav class="nav-links">
+      <a class="nav-link" href="/"><span class="ico">💬</span>对话</a>
+      <a class="nav-link on" href="/family.html"><span class="ico">📖</span>查看端</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+
+    <div class="page-head">
+      <h1>家人查看端</h1>
+      <p class="sub" id="subtitle">老人在设备上讲的话，都会整理成记忆存在这里</p>
+    </div>
+
+  <div class="banner" id="banner" hidden></div>
+  <div class="banner" id="errBox" hidden style="background:#fff0ec;border-color:#f0c4b4;color:#8a3a1c"></div>
+  <div class="cards" id="cards"></div>
+  <div class="banner" id="watch" hidden></div>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="timeline" class="on">人生时间轴</button>
+    <button data-tab="memories">记忆库</button>
+    <button data-tab="graph">人物图谱</button>
+    <button data-tab="map">足迹地图</button>
+  </nav>
+
+  <section class="panel" id="p-timeline">
+    <h2>人生时间轴 <em>从早到晚。年份是实的；写"中年时期"那种是按上下文推算的位置，用虚线圈标的</em></h2>
+    <div class="timeline" id="timeline"><p class="empty">载入中……</p></div>
+  </section>
+
+  <!-- 原来这里是三个页签：四个维度 / 主句库 / 数据库。
+       其实都是在看同一批记忆 —— 一张表、按维度分组、和原始行。
+       合成一个面板：上面搜、中间按维度分组、下面原始数据。 -->
+  <section class="panel" id="p-memories" hidden>
+    <h2>记忆库 <em>老人说过的话整理成的记忆。可以搜、可以按人/时间/地点/事件分组看，也能直接改库</em></h2>
+    <div class="filters">
+      <input id="q" placeholder="搜一句话：住宿舍 / 挡车工 / 哪年结婚">
+      <button class="primary" id="btnSearch">搜索</button>
+      <button id="btnAll">全部</button>
+      <button id="btnCsv">导出 CSV</button>
+    </div>
+    <div class="filters" id="groupBar">
+      <span class="muted" style="font-size:13px">分组看：</span>
+      <button data-group="" class="on">不分组</button>
+      <button data-group="person">人物</button>
+      <button data-group="time">时间</button>
+      <button data-group="place">地点</button>
+      <button data-group="event">事件</button>
+    </div>
+    <div id="groupChips"></div>
+    <div id="searchInfo"></div>
+    <table id="libTable"></table>
+    <details class="rawdb">
+      <summary>原始数据（直接看/改库里的每一行）</summary>
+      <div class="filters">
+        <span class="muted" id="dbFileInfo"></span>
+        <button id="btnPrune">清掉没人提到的空条目</button>
+        <button id="btnReloadDb">重新载入</button>
+      </div>
+      <div id="dbBody"><p class="empty">点开才载入……</p></div>
+    </details>
+  </section>
+
+  <section class="panel" id="p-graph" hidden>
+    <h2>人物图谱 <em>中间是老人自己；连线 = 这两个人出现在同一条记忆里</em></h2>
+    <div id="graph"></div>
+    <div class="legend">
+      <i style="background:#3c3630"></i>老人自己（中心）
+      <i style="background:var(--warm);margin-left:12px"></i>他说到的人
+      <span id="graphNote" style="margin-left:12px"></span>
+    </div>
+    <div id="graphDetail" style="margin-top:12px"></div>
+  </section>
+
+  <section class="panel" id="p-map" hidden>
+    <h2>足迹地图 <em>去过的地方按先后插旗；点旗帜看那儿的往事</em></h2>
+    <div class="filters">
+      <span class="muted" id="mapProgress"></span>
+    </div>
+    <div id="mapWrap" style="position:relative;width:100%">
+      <div id="chinaMap" style="width:100%;min-height:460px"><p class="empty">载入地图中……</p></div>
+    </div>
+    <div class="legend" style="margin-top:10px">
+      <i style="background:var(--warm)"></i>按年份定位
+      <i style="background:#c08a2e;margin-left:12px"></i>按老家附近定位（约）
+      <span id="mapNote" style="margin-left:12px"></span>
+    </div>
+          </section>
+
+
+  </div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const api = async (u, opt = {}) => {
+  // 加超时：服务正好在重启时，页面会一直转圈，不如明确报错
+  const ctl = new AbortController();
+  const ms = opt.timeout || 20000;
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(u, { ...opt, signal: ctl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? ('超时（' + ms + ' 毫秒没响应）') : e.message);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+let DATA = null;
+
+/** 出错就写在页面上，绝不白屏 */
+function showError(where, e) {
+  const box = document.getElementById('errBox');
+  if (!box) return;
+  box.hidden = false;
+  box.innerHTML = '⚠️ <b>' + esc(where) + '出错</b>：' + esc(e && e.message ? e.message : String(e))
+    + '　<button class="mini primary" id="btnRetryAll">重新载入</button>'
+    + '<br><span style="font-size:12px">页面其它部分仍然可用。若服务刚重启，点"重新载入"即可。</span>';
+  const btn = document.getElementById('btnRetryAll');
+  if (btn) btn.onclick = () => { box.hidden = true; load(); };
+  console.error(where, e);
+}
+
+/** 每一步单独兜底：一个坏了不影响别的 */
+function safe(label, fn) {
+  try { return fn(); } catch (e) { showError(label, e); return null; }
+}
+
+async function load() {
+  try {
+    DATA = await api('/api/family');
+  } catch (e) {
+    showError('读取数据', e);
+    DATA = { preview: false, stats: {}, sentences: [], archive: { summary: {}, timeline: [] }, graph: { nodes: [], links: [] } };
+  }
+  try {
+    const p = DATA.persona || {};
+    $('#subtitle').textContent = [p.elder_call + (p.elder_name ? '（' + p.elder_name + '）' : ''), p.birth_year ? p.birth_year + ' 年生' : '', p.hometown].filter(Boolean).join(' · ');
+    if (DATA.preview) {
+      $('#banner').hidden = false;
+      $('#banner').innerHTML = '📭 <b>老人还没开始讲</b>，下面显示的是<b>界面示例</b>（不是真实内容，未存进数据库）。等他跟岁语聊过几句，这里就换成真实记忆。';
+    } else if ((DATA.stats || {}).sentences === 0) {
+      $('#banner').hidden = false;
+      $('#banner').innerHTML = '📭 还没有任何记忆。请老人在对话界面跟岁语聊几句，这里会自动出现内容。';
+    }
+  } catch (e) { showError('显示标题', e); }
+
+  DATA.sentences = DATA.sentences || (DATA.archive && DATA.archive.sentences) || [];
+  safe('统计卡片', renderCards);
+  safe('陪伴守望', renderWatch);
+  safe('时间轴', renderTimeline);
+  safe('四个维度', renderDims);
+  safe('主句库', () => renderLibrary(DATA.sentences));
+  safe('人物图谱', renderGraph);
+  // 地图与数据库不在这里画：点开对应页签再画，免得拖慢首页
+}
+
+function renderCards() {
+  const st = DATA.stats || {};
+  // 不再有"已确认 / 待核对"两档了（核对流程砍掉，进库就是正式档案），
+  // 所以只报一个"记忆条数" —— 不然两个数字永远一模一样，看着奇怪。
+  const items = [['记忆条数', st.sentences], ['人物', st.persons], ['地点', st.places], ['时间', st.times], ['事件', st.events], ['原话留档', st.utterances]];
+  $('#cards').innerHTML = items.map(([k, v]) => `<div class="card"><b>${v ?? 0}</b><span>${k}</span></div>`).join('');
+}
+
+/** 陪伴守望：老人今天心情怎么样、多久没说话了 */
+function renderWatch() {
+  const w = DATA.watch;
+  const box = $('#watch');
+  if (!w || !box) { if (box) box.hidden = true; return; }
+
+  const mood = w.lastMood;
+  const MOOD_CN = { low: '难过', uneasy: '看着不太对劲', normal: '正常', happy: '心情不错' };
+  const moodTxt = mood
+    ? `${MOOD_CN[mood.level] || mood.level}${
+      mood.note ? `，${esc(mood.note)}` : ''}（${
+      mood.source === 'camera' ? '摄像头看出来的' : mood.source === 'text' ? '从聊天里听出来的' : '手动记的'}）`
+    : '还没有读数';
+
+  // 只在"值得家人留意"时才显示这条，平时不打扰
+  const idleTooLong = w.silentMinutes >= 120;
+  // "不太对劲"（生气/烦躁/害怕占压倒性）也算值得留意 —— 他未必是难过，但情绪确实不在平常状态
+  const lowRecent = mood && (mood.level === 'low' || mood.level === 'uneasy');
+  if (!idleTooLong && !lowRecent) { box.hidden = true; return; }
+
+  const parts = [];
+  if (lowRecent) {
+    const what = mood.level === 'uneasy' ? '老人最近看着不太对劲' : '老人最近情绪看着有点低';
+    parts.push(`<b>${what}</b> —— ${moodTxt}${mood.source === 'camera' ? '，岁语已经过去陪他了' : ''}`);
+  }
+  if (idleTooLong) parts.push(`已经 <b>${Math.floor(w.silentMinutes / 60)} 小时 ${w.silentMinutes % 60} 分钟</b>没说话`);
+  box.innerHTML = `🫶 ${parts.join('；')}。${w.cameraOn ? '<span class="muted">（摄像头情绪识别开着）</span>' : ''}`;
+  box.hidden = false;
+}
+
+function renderTimeline() {
+  const tl = DATA.preview ? DATA.timeline : ((DATA.archive || {}).timeline || []);
+  if (!tl.length) { $('#timeline').innerHTML = '<p class="empty">还没有记忆。</p>'; return; }
+  $('#timeline').innerHTML = tl.map((g, i) => {
+    /* 有确切年份 → 年份做大、实心圆点；
+       没有确切年份（"中年时期""杭州开餐馆那几年""约 1978 年"）→ 小一号、灰一点、
+       虚线圆点。位置是按上下文推算出来的，别让它看着像一个确定的年份。
+       轴在中间，卡片左右交替（i % 2）—— 窄屏 CSS 会自动收回左边单列。 */
+    const y = g.estimated ? null : /^(\d{4})\s*年$/.exec(g.label);
+    const when = y
+      ? `<b>${esc(y[1])}</b><i>年</i>`
+      : `<b class="loose">${esc(g.label)}</b>`;
+    const side = i % 2 === 0 ? 'left' : 'right';
+    /* 同一件事散成好几条时，上面给一句合成的（g.note），下面逐条折叠着看 */
+    const body = g.note
+      ? `<p class="tl-note">${esc(g.note)}</p>
+         <details class="tl-more"><summary>${g.items.length} 条原话</summary>
+           <ul class="tl-items">${g.items.map((it) => `<li${it.raw && it.raw !== it.statement ? ` title="原话：${esc(it.raw)}"` : ''}>${esc(it.statement)}</li>`).join('')}</ul>
+         </details>`
+      : `<ul class="tl-items">${g.items.map((it) => `<li${it.raw && it.raw !== it.statement ? ` title="原话：${esc(it.raw)}"` : ''}>${esc(it.statement)}</li>`).join('')}</ul>`;
+    return `<div class="tl-node ${side}${y ? '' : ' approx'}">
+      <span class="tl-dot"></span>
+      <div class="tl-card">
+        <div class="tl-when">${when}<span class="tl-n">${g.items.length} 条</span></div>
+        ${body}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ==================================================================
+   记忆库
+   ------------------------------------------------------------------
+   以前是三个页签：
+     四个维度 —— 同一批记忆，按人/时间/地点/事件分组
+     主句库   —— 同一批记忆，一张表
+     数据库   —— 同一批记忆的原始行
+   三块看的是同一样东西，分成三个页签来回切很累。
+   现在合成一个面板：上面搜、中间按维度分组、下面折叠的原始数据。
+   ================================================================== */
+let grouping = '';        // '' | person | time | place | event
+
+/** 切到记忆库时调用 */
+function renderMemories() {
+  renderGroupBar();
+  if (!($('#libTable').innerHTML || '').trim()) renderLibrary(DATA.sentences || []);
+}
+
+/** 分组按钮那一排 */
+function renderGroupBar() {
+  document.querySelectorAll('#groupBar button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.group === grouping);
+  });
+  const box = $('#groupChips');
+  if (!grouping) { box.innerHTML = ''; return; }
+  renderDims();
+}
+
+/** 在客户端把一条记忆对到某个维度值上 */
+function matchDim(s, dim, name) {
+  const eq = (a, b) => a === b || String(a).includes(String(b)) || String(b).includes(String(a));
+  if (dim === 'person') return (s.persons || []).some((x) => eq(x, name));
+  if (dim === 'place') return (s.places || []).some((x) => eq(x, name));
+  if (dim === 'event') return (s.events || []).some((x) => eq(x, name));
+  if (dim === 'time') {
+    if (s.year && String(name).includes(String(s.year))) return true;
+    return eq(s.time_label || '', name);
+  }
+  return false;
+}
+
+/** 只画**当前选中的那个维度**的条目（不再四个挤在一起） */
+function renderDims() {
+  const dims = DATA.preview ? DATA.dimensions : ((DATA.archive || {}).summary || {});
+  const d = dims[grouping] || { label: grouping, items: [] };
+  const box = $('#groupChips');
+  if (!(d.items || []).length) {
+    box.innerHTML = `<p class="muted" style="margin:6px 0">按「${esc(label(grouping))}」还没有可分的条目</p>`;
+    return;
+  }
+  box.innerHTML = `<div class="dim"><h4>${esc(d.label)}</h4>` + d.items.map((it) => {
+    const name = grouping === 'time' ? (it.label || it.raw) : it.name;
+    const extra = (grouping === 'person' && it.aliases && it.aliases.length > 1)
+      ? '（' + it.aliases.filter((a) => a !== it.name).join('/') + '）' : '';
+    return `<button class="chip" data-id="${it.id}" data-name="${esc(name)}">${esc(name)}${esc(extra)}<span class="n">${it.memories ?? 0}</span></button>`;
+  }).join('') + '</div>';
+  document.querySelectorAll('#groupChips .chip').forEach((c) => {
+    c.onclick = () => showDim(grouping, c.dataset.id, c.dataset.name, c);
+  });
+}
+
+/** 点维度里的某个条目 → 直接把下面的表筛成相关的那些 */
+function showDim(dim, id, name, btn) {
+  document.querySelectorAll('#groupChips .chip').forEach((c) => c.classList.toggle('on', c === btn));
+  const hit = (DATA.sentences || []).filter((s) => matchDim(s, dim, name));
+  renderLibrary(hit, `<p class="muted">按${esc(label(dim))}「${esc(name)}」筛出 ${hit.length} 条　<button id="btnClear" style="padding:2px 10px;font-size:13px">看全部</button></p>`);
+  const clear = $('#btnClear');
+  if (clear) clear.onclick = () => { document.querySelectorAll('#groupChips .chip').forEach((c) => c.classList.remove('on')); renderLibrary(DATA.sentences || []); };
+}
+const label = (d) => ({ person: '人物', time: '时间', place: '地点', event: '事件' }[d] || d);
+
+function card(title, list, item) {
+  const head = item ? `<div class="muted" style="font-size:13px">${item.aliases && item.aliases.length > 1 ? '别名：' + esc(item.aliases.join('、')) + '　' : ''}${item.basis ? esc(item.basis) : ''}</div>` : '';
+  if (!list.length) return `<h3 style="font-size:16px">${title}</h3>${head}<p class="empty">没有相关记忆。</p>`;
+  return `<h3 style="font-size:16px">${title} <span class="muted" style="font-size:13px;font-weight:400">共 ${list.length} 条</span></h3>${head}
+    <ul>${list.map((s) => `<li>${esc(s.statement)}</li>`).join('')}</ul>`;
+}
+
+function renderLibrary(items, info) {
+  $('#searchInfo').innerHTML = info || '';
+  $('#libTable').innerHTML = items.length
+    ? `<thead><tr><th>#</th><th>主句（整理后）</th><th>老人可能会怎么问</th><th>时间</th><th>人物 / 地点 / 事件</th><th>状态</th></tr></thead>
+      <tbody>${items.map((s) => `<tr>
+        <td>${s.seq ?? ''}</td>
+        <td class="main">${esc(s.statement)}</td>
+        <td class="ask">${esc((s.asks || []).slice(0, 2).join('；'))}</td>
+        <td>${esc(s.time_label || (s.year ? s.year + ' 年' : '—'))}</td>
+        <td>${[...(s.persons || []), ...(s.places || []), ...(s.events || [])].map((x) => `<span class="pill">${esc(x)}</span>`).join('') || '—'}</td>
+        <td><span class="pill green">已记下</span>
+          <div class="muted" style="font-size:12px">置信 ${s.confidence}　被问 ${s.asked_count ?? 0} 次</div></td>
+      </tr>`).join('')}</tbody>`
+    : '<tbody><tr><td class="empty">还没有内容</td></tr></tbody>';
+}
+
+$('#btnSearch').onclick = async () => {
+  const q = $('#q').value.trim();
+  if (!q) return;
+  if (DATA.preview) {
+    const hit = (DATA.sentences || []).filter((s) => s.statement.includes(q));
+    renderLibrary(hit, `<p class="muted">示例数据里搜「${esc(q)}」命中 ${hit.length} 条</p>`);
+    return;
+  }
+  const r = await api('/api/search?q=' + encodeURIComponent(q));
+  $('#searchInfo').innerHTML = `<p class="muted">「${esc(q)}」命中 ${r.hits.length} 条（按相关度排）</p>`;
+  $('#libTable').innerHTML = r.hits.length
+    ? `<thead><tr><th>#</th><th>命中的主句</th><th>问法</th><th>相关度</th><th>状态</th></tr></thead>
+      <tbody>${r.hits.map((h) => `<tr><td>${h.seq}</td><td class="main">${esc(h.statement)}</td>
+        <td class="ask">${esc((h.asks || [])[0] || '')}</td>
+        <td>${h.score}<div class="muted" style="font-size:12px">字面 ${h.why.overlap} · 类别 ${h.why.kinds} · 称呼 ${h.why.name ?? 0}</div></td>
+        <td><span class="pill green">已记下</span></td></tr>`).join('')}</tbody>`
+    : `<tbody><tr><td class="empty">主句库里没有相关的内容。分析结果：人物 ${r.heard.persons.join('、') || '—'}｜地点 ${r.heard.places.join('、') || '—'}｜事件 ${r.heard.events.join('、') || '—'}</td></tr></tbody>`;
+};
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btnSearch').click(); });
+document.querySelectorAll('#groupBar button').forEach((b) => {
+  b.onclick = () => {
+    grouping = b.dataset.group || '';
+    renderGroupBar();
+    renderLibrary(DATA.sentences || []);        // 换分组时把表恢复成全部
+  };
+});
+/* 原始数据折叠着，点开才去取（省一次请求） */
+document.addEventListener('toggle', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('rawdb') && e.target.open) {
+    safe('原始数据', renderDb);
+  }
+}, true);
+$('#btnAll').onclick = () => { $('#q').value = ''; renderLibrary(DATA.sentences || []); };
+$('#btnCsv').onclick = () => {
+  const rows = [['编号', '主句', '疑问形式', '时间', '状态']].concat((DATA.sentences || []).map((s) => [s.seq, s.statement, (s.asks || []).join(' / '), s.time_label || s.year || '', s.status]));
+  const csv = '\uFEFF' + rows.map((r) => r.map((c) => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = '岁语记忆档案.csv';
+  a.click();
+};
+
+function renderGraph() {
+  const g = DATA.graph || { nodes: [], links: [] };
+  const host = $('#graph');
+  const nodes = g.nodes || [];
+  if (!nodes.length) {
+    host.innerHTML = '<div class="empty">还没有能画的内容。老人在对话里提到某个人之后，这里会出现他和你（自己为中心）。</div>';
+    $('#graphNote').textContent = '';
+    $('#graphDetail').innerHTML = '';
+    return;
+  }
+  const selfId = g.selfId || '__self__';
+  const selfNode = nodes.find((n) => n.id === selfId);
+  const others = nodes.filter((n) => n.id !== selfId);
+  const linked = new Set();
+  for (const l of g.links) { linked.add(l.source); linked.add(l.target); }
+  $('#graphNote').textContent = `他 + ${others.length} 个人 · ${g.links.length} 条关系`;
+
+  // 量容器宽度：面板还隐藏、或布局没算完时都会是 0，这时画出来就是空的
+  let W = host.clientWidth || host.offsetWidth || 0;
+  if (W < 200) {
+    host.style.minHeight = '460px';
+    if (!host.dataset.retried) {
+      host.dataset.retried = '1';
+      host.innerHTML = '<p class="empty">正在计算地图尺寸……</p>';
+      afterLayout(() => safe('足迹地图', renderMap));
+      return;
+    }
+    W = Math.max((host.parentElement && host.parentElement.clientWidth) || 0, 900);
+  }
+  host.dataset.retried = '';
+  const H = Math.max(320, Math.min(560, 150 + nodes.length * 46));
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = Math.min(W / 2 - 110, H / 2 - 60);
+  const pos = new Map();
+  // 自己放正中间；提到过的人围着排（不按"有没有关系"分内外圈了）
+  if (selfNode) pos.set(selfId, [cx, cy]);
+  const ring = others.length;
+  others.forEach((n, i) => {
+    const a = (i / Math.max(1, ring)) * Math.PI * 2 - Math.PI / 2;
+    pos.set(n.id, [cx + Math.cos(a) * R, cy + Math.sin(a) * R * 0.9]);
+  });
+
+  const svg = ['<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '">'];
+  for (const l of g.links) {
+    const a = pos.get(l.source);
+    const b = pos.get(l.target);
+    if (!a || !b) continue;
+    const toSelf = l.source === selfId || l.target === selfId;
+    // 颜色不能太浅，否则在米色背景上根本看不见
+    svg.push('<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="' + (toSelf ? '#c0a882' : '#a8875a') + '" stroke-width="' + (toSelf ? 1.8 : 2.2 + Math.min(l.weight || 1, 3) * 1.1) + '" stroke-linecap="round"/>');
+  }
+  for (const n of nodes) {
+    const p = pos.get(n.id);
+    const isSelf = n.id === selfId;
+    if (!p) continue;
+    const r = isSelf ? 40 : Math.max(18, Math.min(30, 14 + (n.memories || 1) * 3));
+    const fill = isSelf ? '#3c3630' : '#b4531f';
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + r + '" fill="' + fill + '" opacity=".95"/>');
+    const label = isSelf ? '我' : esc(n.name).slice(0, 4);
+    svg.push('<text x="' + p[0] + '" y="' + (p[1] + 6) + '" text-anchor="middle" font-size="' + (isSelf ? 20 : 14) + '" fill="#fff" font-weight="700">' + label + '</text>');
+    const al = (n.aliases || []).filter((x) => x !== n.name);
+    const tip = isSelf
+      ? (n.name && n.name !== '我' ? n.name + ' · ' + (n.memories || 0) + ' 条记忆' : (n.memories || 0) + ' 条记忆')
+      : [al.length ? '别名 ' + al.join('/') : '', n.memories ? n.memories + ' 条记忆' : ''].filter(Boolean).join(' · ');
+    if (tip) svg.push('<text x="' + p[0] + '" y="' + (p[1] + r + 16) + '" text-anchor="middle" font-size="11" fill="#6d6559">' + esc(tip) + '</text>');
+  }
+  svg.push('</svg>');
+  host.innerHTML = svg.join('');
+
+  // 人物明细
+  const solo = g.solo || {};
+  $('#graphDetail').innerHTML = nodes.map((n) => {
+    const list = solo[n.id] || [];
+    if (!list.length) return '';
+    const al = (n.aliases || []).filter((x) => x !== n.name);
+    return `<div class="dbrow"><div class="dbrow-head">
+        <b>${esc(n.name)}</b>${al.length ? '<span class="muted" style="font-size:12px">（' + esc(al.join('/')) + '）</span>' : ''}
+        <span class="muted" style="font-size:12px">${list.length} 条记忆</span></div>
+      <ul style="margin:4px 0 0;padding-left:20px">${list.map((r) => '<li>' + esc(r.statement) + (r.year ? ' <span class="pill gray">' + r.year + '</span>' : '') + '</li>').join('')}</ul>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- 足迹地图：中国地图 + 按顺序插旗 ---------- */
+let MAP = null;      // { geojson, bbox }
+let FOOT = null;     // 足迹数据
+let mapTimer = null; // 顺序插旗的定时器
+
+/** 只画底图：每省一条 path（34 条，不是 800 多条），顺便标上省名 */
+function drawBase(W, H, bbox, P, geojson) {
+  const isPoint = (x) => Array.isArray(x) && typeof x[0] === 'number';
+  const paths = [];
+  const labels = [];
+  for (const f of (geojson.features || [])) {
+    const name = f.properties?.name || '';
+    let d = '';
+    let sx = 0; let sy = 0; let n = 0;
+    const walk = (node) => {
+      if (!Array.isArray(node) || !node.length) return;
+      if (isPoint(node[0])) {
+        if (node.length < 3) return;
+        const head = P(node[0][0], node[0][1]);
+        d += 'M' + head[0].toFixed(1) + ' ' + head[1].toFixed(1);
+        for (let i = 1; i < node.length; i += 1) {
+          const q = P(node[i][0], node[i][1]);
+          d += 'L' + q[0].toFixed(1) + ' ' + q[1].toFixed(1);
+          sx += q[0]; sy += q[1]; n += 1;
+        }
+        d += 'Z';
+        return;
+      }
+      for (const c of node) walk(c);
+    };
+    walk((f.geometry || {}).coordinates);
+    if (d) paths.push('<path d="' + d + '" fill="#eef4f1" stroke="#cbdad4" stroke-width="0.9"/>');
+    if (n > 0) labels.push({ name, x: sx / n, y: sy / n });
+  }
+  const names = labels
+    .filter((l) => l.name && l.name.length <= 4)
+    .map((l) => '<text x="' + l.x.toFixed(1) + '" y="' + l.y.toFixed(1) + '" text-anchor="middle" font-size="10" fill="#9fb3ac">' + esc(l.name) + '</text>')
+    .join('');
+  return paths.join('') + names;
+}
+
+/** 画一面旗 —— 地图上只留旗子和序号，文字都收进点击浮窗 */
+function drawFlag(p, P) {
+  const q = P(p.lng, p.lat);
+  const color = p.approx ? '#c08a2e' : '#b4531f';
+  const pole = 30;
+  return '<g class="flag" data-i="' + p.order + '" style="cursor:pointer">'
+    // 点击热区：透明大圆，手指也好点
+    + '<circle cx="' + q[0] + '" cy="' + (q[1] - pole / 2) + '" r="18" fill="transparent"/>'
+    + '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[0] + '" y2="' + (q[1] - pole) + '" stroke="#6d6559" stroke-width="1.6"/>'
+    + '<path d="M' + q[0] + ' ' + (q[1] - pole) + ' L' + (q[0] + 24) + ' ' + (q[1] - pole + 7) + ' L' + q[0] + ' ' + (q[1] - pole + 14) + ' Z" fill="' + color + '" opacity=".95"/>'
+    + '<text x="' + (q[0] + 9) + '" y="' + (q[1] - pole + 10) + '" font-size="10" fill="#fff" font-weight="700" text-anchor="middle">' + p.order + '</text>'
+    + '<circle cx="' + q[0] + '" cy="' + q[1] + '" r="3.4" fill="' + color + '"/>'
+    + '</g>';
+}
+
+/**
+ * 地图包围盒。
+ * 服务端给的原始范围是 3.84°N ~ 53.56°N —— 里面包含南海诸岛，
+ * 它们把纬度跨度撑大 26%，结果是大陆被挤到画面上半部、下面一大片空白。
+ * 标准中国地图会把南海做成小图嵌在角落；这里老人的人生轨迹用不到三沙，
+ * 所以直接把包围盒收到大陆范围（17°N 以上，海南仍在范围内）。
+ */
+function mapBbox() {
+  const b = MAP.bbox || [73.5, 18, 135, 53.6];
+  return [b[0], Math.max(b[1], 17), b[2], Math.min(b[3], 54)];
+}
+
+async function renderMap() {
+  const host = $('#chinaMap');
+  if (!FOOT) FOOT = await api('/api/footprints');
+  if (!MAP) {
+    host.innerHTML = '<p class="empty">载入地图中……（第一次要下载约 340 KB 地图数据）</p>';
+    try {
+      MAP = await api('/api/map/china');
+    } catch (e) {
+      host.innerHTML = '<p class="empty">地图数据没拿到：' + esc(e.message) + '　<button class="mini" id="btnRetryMap">重试</button></p>';
+      const btn = document.getElementById('btnRetryMap');
+      if (btn) btn.onclick = () => { MAP = null; safe('足迹地图', renderMap); };
+      return;
+    }
+    if (!MAP || !MAP.geojson || !MAP.geojson.features || !MAP.geojson.features.length) {
+      host.innerHTML = '<p class="empty">地图数据是空的（public/map/china.json 可能没生成）</p>';
+      return;
+    }
+  }
+  const W = host.clientWidth || 900;
+  const H = Math.round(Math.min(720, Math.max(460, W * 0.62)));
+  const bbox = mapBbox();
+  const merc = (y) => Math.log(Math.tan(Math.PI / 4 + (y * Math.PI) / 360));
+  // 墨卡托的数值"越大越靠北"：merc(53.56°)=1.111 > merc(4.95°)=0.086。
+  // 所以屏幕 y 要用 (北 - 当前) 来算，北边算出小 y、南边算出大 y。
+  // 之前写成 (当前 - 南)，高度成了负数，整张图被画到画布外面（只剩几条横线）。
+  const x0 = bbox[0]; const x1 = bbox[2];
+  const yN = merc(bbox[3]);      // 北
+  const yS = merc(bbox[1]);      // 南
+  const pad = 12;
+  // 经度是"度"、纬度经墨卡托后是对数单位，量纲不同：
+  // 要把经度换成弧度再乘以 2π，才和墨卡托的纵向单位同量纲，比例才是对的。
+  // （之前直接拿 宽/经度跨度 和 高/纬度跨度 取 min，比例被宽度主导，
+  //   垂直方向只用了十几像素，整张图被压成一条横线。）
+  const xW = (x1 - x0) * Math.PI / 180;      // 横向跨度（墨卡托单位）
+  const yH = yN - yS;                        // 纵向跨度（墨卡托单位）
+  const sc = Math.min((W - pad * 2) / xW, (H - pad * 2) / yH);
+  const ox = pad + ((W - pad * 2) - xW * sc) / 2;
+  const oy = pad + ((H - pad * 2) - yH * sc) / 2;
+  const P = (lng, lat) => [ox + ((lng - x0) * Math.PI / 180) * sc, oy + (yN - merc(lat)) * sc];
+
+  const base = drawBase(W, H, bbox, P, MAP.geojson);
+  host.innerHTML = '<svg id="mapSvg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto;background:#f4f8f7;border-radius:14px">'
+    + '<g id="mapBase">' + base + '</g><g id="mapFlags"></g></svg>';
+
+  const pts = (FOOT.places || []).filter((p) => p.located);
+  $('#mapNote').textContent = pts.length + ' 个地方 · 点旗帜看内容';
+
+  replayFlags();
+  bindFlagClicks();
+}
+
+/** 点旗帜 → 弹出浮窗看这个地方的往事 */
+function bindFlagClicks() {
+  const svg = document.getElementById('mapSvg');
+  if (!svg) return;
+  svg.querySelectorAll('g.flag').forEach((g) => {
+    g.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const i = Number(g.dataset.i);
+      const p = (FOOT.places || []).find((x) => x.order === i);
+      if (p) showPlace(p);
+    });
+  });
+}
+
+/** 地点浮窗（点地图空白处、或者点关闭就收起来） */
+function showPlace(p) {
+  hidePlace();
+  const d = document.createElement('div');
+  d.className = 'place-pop';
+  d.id = 'placePop';
+  /* 几条记忆可能挂在同一个地方（城市 + 具体地点），会重复 —— 去个重。
+     时间也去重：label 里已经有"约/大约"就不再在前面加"约"。 */
+  const seen = new Set();
+  const list = (p.memories || []).filter((m) => {
+    const t = String(m.statement || '').trim();
+    if (!t || seen.has(t)) return false;
+    seen.add(t);
+    return true;
+  });
+  const tl = String(p.time_label || '');
+  const when = (p.approx && !/^(约|大约|大概)/.test(tl)) ? '约 ' + tl : tl;
+  d.innerHTML = `<button class="place-pop-x" title="关闭">✕</button>
+    <h3>${esc(p.label)}</h3>
+    <div class="place-pop-meta">${esc(when)}${p.spurs && p.spurs.length ? ' · ' + esc(p.spurs.map((sp) => sp.name).join('、')) : ''}</div>
+    <ul>${list.map((m) => `<li>${esc(m.statement)}</li>`).join('') || '<li class="muted">这里还没记下什么</li>'}</ul>
+    <div class="place-pop-basis">定位依据：${esc(p.basis || '—')}</div>`;
+  document.body.appendChild(d);
+  d.querySelector('.place-pop-x').onclick = hidePlace;
+  // 点别处就收起来
+  setTimeout(() => document.addEventListener('pointerdown', hidePlace, { once: true }), 0);
+}
+
+function hidePlace() {
+  const old = document.getElementById('placePop');
+  if (old) old.remove();
+}
+
+/** 把所有旗子一次画好 —— 不再一面一面"插"出来 */
+function replayFlags() {
+  if (mapTimer) { clearInterval(mapTimer); mapTimer = null; }
+  const box = document.getElementById('mapFlags');
+  if (!box) return;
+  const svg = document.getElementById('mapSvg');
+  const vb = (svg.getAttribute('viewBox') || '0 0 900 500').split(' ').map(Number);
+  const W = vb[2]; const H = vb[3];
+  const bbox = mapBbox();
+  const merc = (y) => Math.log(Math.tan(Math.PI / 4 + (y * Math.PI) / 360));
+  // 墨卡托的数值"越大越靠北"：merc(53.56°)=1.111 > merc(4.95°)=0.086。
+  // 所以屏幕 y 要用 (北 - 当前) 来算，北边算出小 y、南边算出大 y。
+  // 之前写成 (当前 - 南)，高度成了负数，整张图被画到画布外面（只剩几条横线）。
+  const x0 = bbox[0]; const x1 = bbox[2];
+  const yN = merc(bbox[3]);      // 北
+  const yS = merc(bbox[1]);      // 南
+  const pad = 12;
+  // 经度是"度"、纬度经墨卡托后是对数单位，量纲不同：
+  // 要把经度换成弧度再乘以 2π，才和墨卡托的纵向单位同量纲，比例才是对的。
+  // （之前直接拿 宽/经度跨度 和 高/纬度跨度 取 min，比例被宽度主导，
+  //   垂直方向只用了十几像素，整张图被压成一条横线。）
+  const xW = (x1 - x0) * Math.PI / 180;      // 横向跨度（墨卡托单位）
+  const yH = yN - yS;                        // 纵向跨度（墨卡托单位）
+  const sc = Math.min((W - pad * 2) / xW, (H - pad * 2) / yH);
+  const ox = pad + ((W - pad * 2) - xW * sc) / 2;
+  const oy = pad + ((H - pad * 2) - yH * sc) / 2;
+  const P = (lng, lat) => [ox + ((lng - x0) * Math.PI / 180) * sc, oy + (yN - merc(lat)) * sc];
+
+  const pts = (FOOT.places || []).filter((p) => p.located);
+  /* 一次全画出来 —— 不再一面一面"插"。插旗动画看着热闹，
+     但每次打开地图都要等好几秒，而且画完之前信息不完整。 */
+  box.innerHTML = pts.map((p) => drawFlag(p, P)).join('');
+  $('#mapProgress').textContent = pts.length ? pts.length + ' 个地方' : '还没有能定位的地方';
+  bindFlagClicks();
+}
+
+/* ---------- 数据库：直接看库、直接删改 ---------- */
+let DB = null;
+
+async function renderDb() {
+  const box = $('#dbBody');
+  box.innerHTML = '<p class="empty">正在读数据库……</p>';
+  DB = await api('/api/db/tables');
+  $('#dbFileInfo').textContent = '数据库文件：' + DB.dbFile + '　共 ' + DB.tables.length + ' 张表';
+
+  box.innerHTML = DB.tables.map((t) => {
+    const head = `<h3 style="font-size:16px;margin:18px 0 8px">${esc(t.label)} <span class="muted" style="font-weight:400;font-size:13px">${t.table} · ${t.count} 行</span></h3>`;
+    if (!t.rows.length) return head + '<p class="empty">空表</p>';
+    if (t.table === 'sentences') return head + renderSentenceRows(t.rows);
+    if (['people','times','places','events'].includes(t.table)) return head + renderDimRows(t);
+    if (t.table === 'utterances') return head + `<div class="cards" style="grid-template-columns:1fr">${t.rows.slice(0, 60).map((r) => `<div class="card" style="padding:8px 12px"><span class="pill ${r.role === 'elder' ? '' : 'gray'}">${r.role === 'elder' ? '老人' : '岁语'}</span> ${esc(r.text)}<div class="muted" style="font-size:12px">${esc(r.created_at)}</div></div>`).join('')}</div>`;
+    return head + simpleTable(t);
+  }).join('');
+
+  bindDbActions();
+}
+
+function renderSentenceRows(rows) {
+  return rows.map((r) => {
+    const dims = r._dims || {};
+    const tags = [
+      ...(dims.persons || []).map((x) => '<span class="pill">' + esc(x.name) + '</span>'),
+      ...(dims.times || []).map((x) => '<span class="pill gray">' + esc(x.label) + '</span>'),
+      ...(dims.places || []).map((x) => '<span class="pill green">' + esc(x.name) + '</span>'),
+      ...(dims.events || []).map((x) => '<span class="pill" style="background:#f6efdd;color:#8a6a1f">' + esc(x.name) + '</span>'),
+    ].join(' ');
+    return `<div class="dbrow" data-id="${r.id}">
+      <div class="dbrow-head">
+        <span class="muted" style="font-size:13px">#${r.seq} · ${esc(r.id)} · ${esc(r.created_at)}</span>
+        <span>
+          <button class="mini" data-act="edit" data-id="${r.id}">改</button>
+          <button class="mini danger" data-act="del-sentence" data-id="${r.id}">删</button>
+        </span>
+      </div>
+      <div class="dbrow-body" data-edit-for="${r.id}">
+        <div class="main" style="font-size:17px">${esc(r.statement)}</div>
+        <div class="muted" style="font-size:13px">老人可能会问：${esc((JSON.parse(r.asks || '[]') || [])[0] || '—')}</div>
+        <div style="margin-top:6px">${tags || '<span class="muted">（没有实体）</span>'}</div>
+        <div class="muted" style="font-size:12px">时间 ${esc(r.time_label || r.time_raw || '—')} · 年份 ${r.year ?? '—'} · 置信 ${r.confidence} · ${r.status === 'confirmed' ? '已确认' : '待核对'} · 被问 ${r.asked_count} 次 · 讲过 ${r.told_count} 遍</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderDimRows(t) {
+  const dim = { people: 'person', times: 'time', places: 'place', events: 'event' }[t.table];
+  return '<div class="cards" style="grid-template-columns:1fr">' + t.rows.map((r) => {
+    const name = t.table === 'times' ? (r.label || r.raw) : r.name;
+    const aliases = r.aliases && JSON.parse(r.aliases || '[]');
+    return `<div class="card" style="padding:10px 14px">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div><b style="font-size:16px;color:var(--ink)">${esc(name)}</b>
+          ${aliases && aliases.length > 1 ? '<span class="muted" style="font-size:12px">（' + esc(aliases.join('/')) + '）</span>' : ''}
+          <div class="muted" style="font-size:12px">${esc(r.id)} · 被提到 ${r.count} 次 · 关联 ${r._memories ?? 0} 条记忆${t.table === 'times' && r.from_year ? ' · ' + r.from_year + (r.to_year && r.to_year !== r.from_year ? '—' + r.to_year : '') : ''}</div>
+        </div>
+        <button class="mini danger" data-act="del-dim" data-dim="${dim}" data-id="${r.id}" data-mem="${r._memories ?? 0}">删</button>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function simpleTable(t) {
+  const cols = t.columns.filter((c) => !c.startsWith('_')).slice(0, 6);
+  return `<table><thead><tr>${cols.map((c) => '<th>' + esc(c) + '</th>').join('')}</tr></thead>
+    <tbody>${t.rows.map((r) => '<tr>' + cols.map((c) => '<td>' + esc(String(r[c] ?? '').slice(0, 120)) + '</td>').join('') + '</tr>').join('')}</tbody></table>`;
+}
+
+function bindDbActions() {
+  document.querySelectorAll('[data-act="del-sentence"]').forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '真的删？'; setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 3000); return; }
+      await api('/api/sentences/' + b.dataset.id, { method: 'DELETE' });
+      await load(); await renderDb();
+    };
+  });
+  document.querySelectorAll('[data-act="del-dim"]').forEach((b) => {
+    b.onclick = async () => {
+      const n = Number(b.dataset.mem || 0);
+      if (b.dataset.armed !== '1') {
+        b.dataset.armed = '1';
+        b.textContent = n ? `还有 ${n} 条挂着，仍要删？` : '真的删？';
+        setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 4000);
+        return;
+      }
+      const r = await fetch('/api/db/dimension/' + b.dataset.dim + '/' + b.dataset.id + '?force=1', { method: 'DELETE' }).then((x) => x.json());
+      if (!r.ok) alert(r.error || '删不掉');
+      await load(); await renderDb();
+    };
+  });
+  document.querySelectorAll('[data-act="edit"]').forEach((b) => {
+    b.onclick = () => {
+      const box = document.querySelector('[data-edit-for="' + b.dataset.id + '"]');
+      if (box.querySelector('.editbox')) return;
+      const cur = box.querySelector('.main').textContent;
+      const div = document.createElement('div');
+      div.className = 'editbox';
+      div.innerHTML = `<input value="${esc(cur)}" style="width:100%;min-height:40px;font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:10px">
+        <div style="margin-top:6px"><button class="mini primary" data-save>保存</button> <button class="mini" data-cancel>取消</button></div>`;
+      box.appendChild(div);
+      div.querySelector('[data-save]').onclick = async () => {
+        await fetch('/api/db/sentence/' + b.dataset.id, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ statement: div.querySelector('input').value }),
+        });
+        await load(); await renderDb();
+      };
+      div.querySelector('[data-cancel]').onclick = () => div.remove();
+    };
+  });
+}
+
+/* ---------- 页签切换 ---------- */
+const TAB_IDS = ['timeline', 'memories', 'graph', 'map'];
+/** 旧的页签名（以前分开的三个）→ 现在都归到"记忆库" */
+const LEGACY_TAB = { dims: 'memories', library: 'memories', db: 'memories' };
+/**
+ * 等浏览器把布局算完再执行。
+ * 面板刚从 hidden 变成显示时宽度还是 0，这会儿画图会画成一张空图。
+ */
+function afterLayout(fn) {
+  // setTimeout 与 requestAnimationFrame 赛跑，谁先到用谁。
+  // 只用 rAF 的话，标签页不在前台（或某些无头浏览器）时它不触发，地图会一直卡在"载入中"。
+  let done = false;
+  const once = () => { if (!done) { done = true; fn(); } };
+  setTimeout(once, 40);
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => requestAnimationFrame(once));
+  }
+}
+
+function showTab(name) {
+  for (const t of TAB_IDS) {
+    const panel = document.getElementById('p-' + t);
+    if (panel) panel.hidden = t !== name;
+  }
+  document.querySelectorAll('#tabs button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.tab === name);
+  });
+  if (name === 'graph') safe('人物图谱', renderGraph);
+  if (name === 'map') afterLayout(() => safe('足迹地图', renderMap));
+  if (name === 'memories') safe('记忆库', renderMemories);
+}
+
+function bindTabs() {
+  const btns = document.querySelectorAll('#tabs button');
+  btns.forEach((b) => {
+    b.addEventListener('click', () => showTab(b.dataset.tab));
+  });
+  // 万一点击事件没绑上（脚本报错等），用事件委托再兜一层
+  const nav = document.getElementById('tabs');
+  if (nav) {
+    nav.addEventListener('click', (e) => {
+      const btn = e.target.closest ? e.target.closest('button[data-tab]') : null;
+      if (btn) showTab(btn.dataset.tab);
+    });
+  }
+  // 支持用网址直接打开某个页签，例如 family.html#map
+  const hashOf = () => ((window.location && window.location.hash) || '').replace('#', '');
+  const want = hashOf();
+  showTab(TAB_IDS.includes(want) ? want : (LEGACY_TAB[want] || 'timeline'));
+  window.addEventListener('hashchange', () => {
+    const h = hashOf();
+    if (TAB_IDS.includes(h)) showTab(h);
+  else if (LEGACY_TAB[h]) showTab(LEGACY_TAB[h]);
+  });
+}
+
+$('#btnPrune').onclick = async () => {
+  const r = await fetch('/api/db/prune', { method: 'POST' }).then((x) => x.json());
+  $('#dbFileInfo').textContent = '清掉了 ' + r.removed + ' 个没人提到的空条目';
+  await load(); await renderDb();
+};
+$('#btnReloadDb').onclick = async () => { await load(); await renderDb(); };
+  // 全局兜底：任何漏网的错都写到页面上，不让你看到白屏
+  window.addEventListener('error', (e) => showError('页面脚本', e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => showError('异步操作', e.reason));
+
+  // 窗口大小变了要重画，否则地图会被拉变形
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const pg = document.getElementById('p-graph');
+      if (pg && !pg.hidden) safe('人物图谱', renderGraph);
+      const pm = document.getElementById('p-map');
+      if (pm && !pm.hidden) safe('足迹地图', renderMap);
+    }, 220);
+  });
+
+  // 先把数据取回来，再绑页签 —— 否则网址带 #graph 时会抢在数据到位前渲染，
+  // 图表就会报 "Cannot read properties of null (reading 'graph')"。
+  load().then(() => bindTabs()).catch((e) => {
+    showError('初始化', e);
+    bindTabs();
+  });
+</script>
+<footer class="site-foot">
+  <div class="wrap">
+    <span>岁语 · 家人查看端</span>
+    <span>记忆存在老人那台设备上；这里只读，除数据库页签可删改</span>
+  </div>
+</footer>
+
+</body>
+</html>

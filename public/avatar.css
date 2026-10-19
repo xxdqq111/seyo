@@ -1,0 +1,164 @@
+/* ==========================================================================
+   岁语 · 数字人样式
+   ========================================================================== */
+
+.seyo-avatar {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  position: relative;
+}
+.seyo-avatar .seyo-avatar-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+  /* 底部渐隐：半身像的裁切看起来更有意为之，而不是被切断 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 88%, rgba(0, 0, 0, .12) 100%);
+  mask-image: linear-gradient(to bottom, #000 88%, rgba(0, 0, 0, .12) 100%);
+}
+
+/* ---------------- 待机微动 ---------------- */
+.seyo-avatar .body {
+  transform-box: view-box;
+  transform-origin: 160px 400px;
+}
+.seyo-avatar .body[data-sway='calm']  { animation: sway-calm  5.2s ease-in-out infinite; }
+.seyo-avatar .body[data-sway='brisk'] { animation: sway-brisk 2.7s ease-in-out infinite; }
+.seyo-avatar .body[data-sway='still'] { animation: sway-still 7.4s ease-in-out infinite; }
+.seyo-avatar .body[data-sway='slow']  { animation: sway-slow  9s   ease-in-out infinite; }
+
+@keyframes sway-calm {
+  0%, 100% { transform: rotate(-0.45deg) translateY(0); }
+  50%      { transform: rotate(0.45deg)  translateY(-2px); }
+}
+@keyframes sway-brisk {
+  0%, 100% { transform: rotate(-0.7deg) translateY(0); }
+  50%      { transform: rotate(0.7deg)  translateY(-3px); }
+}
+@keyframes sway-still {
+  0%, 100% { transform: none; }
+  50%      { transform: translateY(-1.2px); }
+}
+@keyframes sway-slow {
+  0%, 100% { transform: rotate(-0.3deg); }
+  50%      { transform: rotate(0.3deg) translateY(-1.5px); }
+}
+
+/* 头随身体轻轻起伏 */
+.seyo-avatar .head {
+  transform-box: view-box;
+  transform-origin: 160px 240px;
+  animation: head-bob 6.2s ease-in-out infinite;
+}
+@keyframes head-bob {
+  0%, 100% { transform: translateY(0)    rotate(0deg); }
+  50%      { transform: translateY(-1.6px) rotate(0.35deg); }
+}
+
+/* ---------------- 五官动画 ---------------- */
+.seyo-avatar .lid {
+  transition: opacity .09s linear;
+}
+.seyo-avatar .brow {
+  transition: transform .28s cubic-bezier(.4, 0, .2, 1);
+}
+.seyo-avatar .iris,
+.seyo-avatar .pupil {
+  transition: transform .45s cubic-bezier(.4, 0, .2, 1);
+}
+
+/* 嘴：--m 控制张口幅度，从上唇往下张开 */
+.seyo-avatar .mouth-inner {
+  transform-box: view-box;
+  transform-origin: 160px 174px;
+  transform: scaleY(var(--m, .22));
+  transition: transform .12s linear;
+}
+
+/* ---------------- 舞台（放数字人的容器） ---------------- */
+.avatar-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 90% at 50% 12%, #fffdf8 0%, #f8efe1 58%, #f2e3d0 100%);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft, 0 10px 30px rgba(70, 50, 28, .08));
+  overflow: hidden;
+  padding: 8px;
+}
+.avatar-stage .seyo-avatar { max-width: 300px; }
+
+/* ==========================================================================
+   3D 数字人（VRM）
+   --------------------------------------------------------------------------
+   WebGL 只渲一份，再 blit 到各个位置的 2D 画布上 —— 省一个 WebGL 上下文。
+   画布铺满容器，宽高比由 JS 里的相机决定。
+   ========================================================================== */
+.seyo-3d {
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: relative;
+}
+.seyo-3d-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* 舞台里给个最小高度，否则刚挂上时容器高度是 0，模型没地方显示 */
+/* 宿主铺满舞台。舞台是 place-items:center 的网格，普通子元素会被内容决定尺寸，
+   所以这里绝对定位 —— 画布才能真正铺满，也才不会把舞台撑高。 */
+.avatar-stage .seyo-3d-host { position: absolute; inset: 8px; }
+.avatar-stage .seyo-3d { width: 100%; height: 100%; }
+#startFace.seyo-3d-host { width: 200px; height: 250px; }
+#startFace .seyo-3d { width: 100%; height: 100%; }
+.seyo-3d-err {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.6;
+}
+.seyo-3d-err span { font-size: 11.5px; opacity: .75; word-break: break-all; }
+
+/* 说话/倾听时的外圈呼吸光 */
+.avatar-stage::after {
+  content: '';
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s;
+  box-shadow: 0 0 0 2px rgba(180, 83, 31, .18) inset;
+}
+.avatar-stage[data-mode='listening']::after { opacity: 1; animation: ring 1.9s ease-in-out infinite; }
+.avatar-stage[data-mode='speaking']::after  { opacity: 1; box-shadow: 0 0 0 2px rgba(180, 83, 31, .28) inset; }
+@keyframes ring {
+  0%, 100% { transform: scale(.96); opacity: .45; }
+  50%      { transform: scale(1.02); opacity: 1; }
+}
+
+.seyo-3d-loading {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  font-size: 13px;
+  color: var(--dim);
+  letter-spacing: .06em;
+  animation: seyo3d-breathe 2.2s ease-in-out infinite;
+}
+@keyframes seyo3d-breathe { 0%,100% { opacity: .45; } 50% { opacity: .85; } }
+.seyo-3d-host { width: 100%; height: 100%; }

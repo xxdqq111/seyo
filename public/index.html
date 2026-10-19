@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#faf6ef">
+<title>岁语</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/avatar.css">
+<link rel="stylesheet" href="/style.css">
+
+<!-- 3D 数字人用的模块映射。
+     全部 vendor 在 /vendor/ 下，不走 npm、不连外网。
+     必须在任何 type="module" 之前声明。 -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three.module.min.js",
+    "three/addons/": "/vendor/addons/"
+  }
+}
+</script>
+</head>
+<body>
+
+<!-- ============ 顶部导航（与家人端互跳） ============ -->
+<header class="site-nav">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-mark">岁</span>
+      <span class="brand-text">
+        <b id="agentName">岁语</b>
+      </span>
+    </a>
+    <nav class="nav-links">
+      <a class="nav-link on" href="/"><span class="ico">💬</span>对话</a>
+      <a class="nav-link" href="/family.html"><span class="ico">📖</span>查看端</a>
+      <!-- 设置收在右上角。摄像头、内部过程这些家人偶尔才动的东西放这里，
+           老人的主界面上就只剩"说话"这一件事。 -->
+      <button class="gear" id="gearBtn" aria-expanded="false" title="设置">⚙</button>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ 设置面板（右上角小角落） ============ -->
+<div class="settings" id="settings" hidden>
+  <div class="settings-head">
+    <b>设置</b>
+    <button class="settings-close" id="settingsClose" title="收起">✕</button>
+  </div>
+  <div class="settings-body">
+
+    <!-- 声音。跟"点一下让岁语出声"那个浮动按钮不是一回事：
+         那个是浏览器拦住了声音、要一次点击才解锁的一次性提示（已经改成自动解锁了）；
+         这个是**真正的声音开关** —— 关了就完全不出声，文字照样显示。 -->
+    <div class="set-block">
+      <div class="set-title">声音</div>
+      <p class="set-desc">岁语说话的时候，用电脑的声音念出来。<br>
+        不想听就关掉 —— 说的话还是会显示在屏幕上。</p>
+      <button id="soundBtn" class="switch wide on">🔊 开启声音</button>
+      <div class="set-note" id="soundNote">声音开着</div>
+
+      <!-- 用哪个引擎说话。
+           本机神经网络：音质好一档，但要先合成（等几百毫秒），吃 CPU。
+           系统语音：立刻出声，但音质硬（Windows 那几个老嗓音）。 -->
+      <div class="set-label">用什么念</div>
+      <select id="ttsSel" class="set-select">
+        <option value="local">本机神经网络（音质好，文字不出门）</option>
+        <option value="system">系统语音（立刻出声，音质一般）</option>
+      </select>
+      <div class="set-note" id="ttsNote"></div>
+
+      <!-- 岁语是"小孙子"，默认挑男声。但每台电脑装的中文嗓音不一样，
+           哪个听着顺耳只有耳朵知道 —— 所以列出来让人自己选。 -->
+      <div class="set-label">系统语音用哪个嗓音</div>
+      <select id="voiceSel" class="set-select"></select>
+      <button class="switch wide" id="voiceTry">听一下这个嗓音</button>
+      <div class="set-note" id="voiceNote"></div>
+    </div>
+
+    <div class="set-block">
+      <div class="set-title">摄像头</div>
+      <p class="set-desc">让岁语看您的表情，情绪不好时主动过来陪。<br>
+        画面<b>只在本机</b>识别，不上传任何地方。</p>
+      <button id="camBtn" class="switch wide">📷 摄像头：关</button>
+      <div class="set-note" id="camNote"></div>
+    </div>
+
+    <!-- 内部过程：给家人看的，"这句话被怎么理解、从哪查到、又存进了哪" -->
+    <section class="inside">
+      <button class="inside-head" id="insideBtn" aria-expanded="false">
+        <span class="inside-title">🔎 内部过程</span>
+        <span class="dim" id="insideHint">点开看：这句话被怎么理解、从哪里查到、又存进了哪里</span>
+        <span class="caret" id="caret">▸</span>
+      </button>
+      <div class="inside-body" id="insideBody" hidden>
+        <div class="col" id="colHeard"><h4>① 听懂这句</h4><p class="dim">还没有对话。</p></div>
+        <div class="col" id="colRecall"><h4>② 查主句库</h4><p class="dim">—</p></div>
+        <div class="col" id="colStore"><h4>③ 整理入库</h4><p class="dim">—</p></div>
+        <div class="col" id="colDb"><h4>④ 库里现在有什么</h4><p class="dim">—</p></div>
+        <div class="col" id="colWatch"><h4>⑤ 陪伴守望</h4><p class="dim">—</p></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- 开场页和"点一下出声"的浮动按钮都去掉了。
+     浏览器第一次不让出声是"要一次用户点击"这个限制造成的 ——
+     现在改成 **页面里第一次点/按键就自动把声音补上**（见 app.js 的 armAudioUnlock），
+     不再让老人去找一个飘着的小按钮。 -->
+
+<!-- ============ 主界面 ============ -->
+<main class="app" id="app">
+  <div class="wrap">
+
+    <!-- 状态条 -->
+    <div class="topbar">
+      <div class="status" id="status"><i class="dot"></i><span id="statusText">在听您说话</span></div>
+      <div class="clocks">
+        <span id="clock">--:--</span>
+        <span class="dim" id="date"></span>
+      </div>
+    </div>
+
+    <section class="stage">
+      <!-- 数字人 -->
+      <div class="avatar-col">
+        <div class="avatar-stage" id="avatarStage">
+          <div id="avatar"></div>
+        </div>
+        <div class="switches">
+          <button id="quietBtn" class="switch">🤝 安静模式</button>
+        </div>
+      </div>
+
+      <!-- 对话 -->
+      <div class="talk-col">
+        <div class="bubbles" id="bubbles"></div>
+        <div class="typing" id="typing" hidden></div>
+        <div class="say">
+          <button class="mic" id="micBtn"><span class="micIcon">🎤</span><span id="micText">按住说话</span></button>
+          <div class="line">
+            <input id="input" class="field" type="text" autocomplete="off"
+                   placeholder="也可以打字，比如：我年轻时候住哪儿来着？">
+            <button class="send" id="sendBtn" disabled>输入</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<!-- 摄像头（只在开启时才取流；画面不外传，除非自己配了视觉模型） -->
+<video id="cam" playsinline muted hidden></video>
+<canvas id="camCanvas" width="320" height="240" hidden></canvas>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>岁语 </span>
+    <span><a href="/family.html"></a>　·　</span>
+  </div>
+</footer>
+
+<!-- 3D 数字人（VRM）。加载是异步的，app.js 会等它。
+     下面 avatar.js 是 2D 版，两套接口一模一样 ——
+     想切回 2D，把 app.js 里的 window.SeyoAvatar3D 换成 window.SeyoAvatar 就行。 -->
+<script type="module" src="/avatar3d.js"></script>
+<script src="/avatar.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
