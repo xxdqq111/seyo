@@ -610,3 +610,8 @@ details.tl-more .tl-items li { font-size: var(--fs-xs); color: var(--dim); margi
 
 /* 记忆库表格里的「✎ 改标签」 */
 .tag-btn { margin-top: 6px; font-size: 12px; padding: 3px 9px; min-height: 0; }
+
+/* ---------- 陪伴守望状态条：暂时隐藏 ----------
+   内容（老人最近情绪、摄像头判定、岁语有没有过去陪）都还在照常算，
+   只是不在网页上显示。以后要用，把这一段删掉就恢复。 */
+#watch { display: none !important; }
