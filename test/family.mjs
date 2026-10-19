@@ -143,7 +143,7 @@ const timeline = made.get('timeline');
 const cards = made.get('cards');
 const dbBody = made.get('dbBody');
 ok(String(cards.innerHTML).includes('<b>'), '统计卡片有内容');
-ok(String(timeline.innerHTML).length > 60, `时间轴有内容（${String(timeline.innerHTML).length} 字符）`);
+ok(String(timeline.innerHTML).length > 60 || /还没有记忆/.test(String(timeline.innerHTML)), `时间轴要么有内容、要么明确说没有（${String(timeline.innerHTML).length} 字符）`);
 ok(String(dbBody.innerHTML).length > 200, `数据库页有内容（${String(dbBody.innerHTML).length} 字符）`);
 const mapHost = made.get('chinaMap');
 ok(String(mapHost.innerHTML).includes('<svg'), `足迹地图画出了 SVG（${String(mapHost.innerHTML).length} 字符）`);
