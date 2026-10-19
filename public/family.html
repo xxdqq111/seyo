@@ -41,7 +41,7 @@
   <div class="modal" id="personaModal" hidden>
     <div class="modal-box">
       <h3>基本信息</h3>
-      <p class="modal-hint">这几项决定了岁语怎么称呼他、怎么算年份、地图默认落在哪儿。</p>
+      <p class="modal-hint">用于称呼、年份换算和地图定位。</p>
       <label class="fld"><span>称呼</span><input id="pfCall" placeholder="爷爷"></label>
       <label class="fld"><span>出生年份</span><input id="pfBirth" inputmode="numeric" placeholder="1948"></label>
       <label class="fld"><span>老家</span><input id="pfHome" placeholder="北京"></label>
@@ -55,7 +55,7 @@
   <!-- 改一条记忆的时间 / 人物 / 地点 / 事件标签 -->
   <div class="modal" id="tagModal" hidden>
     <div class="modal-box">
-      <h3>改这条记忆的标签</h3>
+      <h3>编辑标签</h3>
       <p class="modal-hint" id="tagStmt"></p>
       <label class="fld"><span>时间说法</span><input id="tgTime" placeholder="青年时期 / 1968 年"></label>
       <label class="fld"><span>年份（四位，可空）</span><input id="tgYear" inputmode="numeric" placeholder="1968"></label>
@@ -82,7 +82,7 @@
   </nav>
 
   <section class="panel" id="p-timeline">
-    <h2>人生时间轴 <em>从早到晚。年份是实的；写"中年时期"那种是按上下文推算的位置，用虚线圈标的</em></h2>
+    <h2>人生时间轴</h2>
     <div class="timeline" id="timeline"><p class="empty">载入中……</p></div>
   </section>
 
@@ -90,9 +90,9 @@
        其实都是在看同一批记忆 —— 一张表、按维度分组、和原始行。
        合成一个面板：上面搜、中间按维度分组、下面原始数据。 -->
   <section class="panel" id="p-memories" hidden>
-    <h2>记忆库 <em>老人说过的话整理成的记忆。可以搜、可以按人/时间/地点/事件分组看，也能直接改库</em></h2>
+    <h2>记忆库</h2>
     <div class="filters">
-      <input id="q" placeholder="搜一句话：住宿舍 / 挡车工 / 哪年结婚">
+      <input id="q" placeholder="搜索记忆">
       <button class="primary" id="btnSearch">搜索</button>
       <button id="btnAll">全部</button>
       <button id="btnCsv">导出 CSV</button>
@@ -109,7 +109,7 @@
     <div id="searchInfo"></div>
     <table id="libTable"></table>
     <details class="rawdb">
-      <summary>原始数据（直接看/改库里的每一行）</summary>
+      <summary>原始数据</summary>
       <div class="filters">
         <span class="muted" id="dbFileInfo"></span>
         <button id="btnPrune">清掉没人提到的空条目</button>
@@ -120,7 +120,7 @@
   </section>
 
   <section class="panel" id="p-graph" hidden>
-    <h2>人物图谱 <em>中间是老人自己；连线 = 这两个人出现在同一条记忆里</em></h2>
+    <h2>人物图谱</h2>
     <div id="graph"></div>
     <div class="legend">
       <i style="background:#3c3630"></i>老人自己（中心）
@@ -131,7 +131,7 @@
   </section>
 
   <section class="panel" id="p-map" hidden>
-    <h2>足迹地图 <em>去过的地方按先后插旗；点旗帜看那儿的往事</em></h2>
+    <h2>足迹地图</h2>
     <div class="filters">
       <span class="muted" id="mapProgress"></span>
     </div>
@@ -205,7 +205,7 @@ async function load() {
       String(p.elder_call || '').trim(),
       p.birth_year ? p.birth_year + ' 年生' : '',
       String(p.hometown || '').trim(),
-    ].filter(Boolean).join(' · ') || '（还没填基本信息）';
+    ].filter(Boolean).join(' · ') || '未填写';
 
     $('#banner').hidden = true;
     if (basicMissing) {
@@ -213,11 +213,11 @@ async function load() {
          没有这几项，岁语不知道该管他叫什么、年份也算不出来、地图也没处落。
          但只在**页面刚打开时**弹一次，别每次刷新数据都蹦出来打断人。 */
       $('#banner').hidden = false;
-      $('#banner').innerHTML = '✎ 还没填<b>称呼 / 出生年份 / 老家</b> —— 填了岁语才知道怎么叫他、怎么算年份。';
+      $('#banner').innerHTML = '请先填写称呼、出生年份和老家。';
       if (!personaAsked) { personaAsked = true; openPersona(); }
     } else if ((DATA.stats || {}).sentences === 0) {
       $('#banner').hidden = false;
-      $('#banner').innerHTML = '📭 还没有任何记忆。请老人在对话界面跟岁语聊几句，这里会自动出现内容。';
+      $('#banner').innerHTML = '暂无记忆记录。';
     }
   } catch (e) { showError('显示标题', e); }
 
@@ -251,7 +251,7 @@ function renderWatch() {
     ? `${MOOD_CN[mood.level] || mood.level}${
       mood.note ? `，${esc(mood.note)}` : ''}（${
       mood.source === 'camera' ? '摄像头看出来的' : mood.source === 'text' ? '从聊天里听出来的' : '手动记的'}）`
-    : '还没有读数';
+    : '暂无数据';
 
   // 只在"值得家人留意"时才显示这条，平时不打扰
   const idleTooLong = w.silentMinutes >= 120;
@@ -271,7 +271,7 @@ function renderWatch() {
 
 function renderTimeline() {
   const tl = DATA.preview ? DATA.timeline : ((DATA.archive || {}).timeline || []);
-  if (!tl.length) { $('#timeline').innerHTML = '<p class="empty">还没有记忆。</p>'; return; }
+  if (!tl.length) { $('#timeline').innerHTML = '<p class="empty">暂无记录</p>'; return; }
   $('#timeline').innerHTML = tl.map((g, i) => {
     /* 有确切年份 → 年份做大、实心圆点；
        没有确切年份（"中年时期""杭州开餐馆那几年""约 1978 年"）→ 小一号、灰一点、
@@ -346,7 +346,7 @@ function renderDims() {
   const d = dims[grouping] || { label: grouping, items: [] };
   const box = $('#groupChips');
   if (!(d.items || []).length) {
-    box.innerHTML = `<p class="muted" style="margin:6px 0">按「${esc(label(grouping))}」还没有可分的条目</p>`;
+    box.innerHTML = `<p class="muted" style="margin:6px 0">按${esc(label(grouping))}分组：暂无条目</p>`;
     return;
   }
   box.innerHTML = `<div class="dim"><h4>${esc(d.label)}</h4>` + d.items.map((it) => {
@@ -380,7 +380,7 @@ function card(title, list, item) {
 function renderLibrary(items, info) {
   $('#searchInfo').innerHTML = info || '';
   $('#libTable').innerHTML = items.length
-    ? `<thead><tr><th>#</th><th>主句（整理后）</th><th>老人可能会怎么问</th><th>时间</th><th>人物 / 地点 / 事件</th><th>状态</th></tr></thead>
+    ? `<thead><tr><th>#</th><th>记忆内容</th><th>常见问法</th><th>时间</th><th>人物 · 地点 · 事件</th><th>状态</th></tr></thead>
       <tbody>${items.map((s) => `<tr>
         <td>${s.seq ?? ''}</td>
         <td class="main">${esc(s.statement)}</td>
@@ -388,10 +388,10 @@ function renderLibrary(items, info) {
         <td>${esc(s.time_label || (s.year ? s.year + ' 年' : '—'))}</td>
         <td>${[...(s.persons || []), ...(s.places || []), ...(s.events || [])].map((x) => `<span class="pill">${esc(x)}</span>`).join('') || '—'}</td>
         <td><span class="pill green">已记下</span>
-          <div class="muted" style="font-size:12px">置信 ${s.confidence}　被问 ${s.asked_count ?? 0} 次</div>
+          <div class="muted" style="font-size:12px">置信度 ${s.confidence}　被询问 ${s.asked_count ?? 0} 次</div>
           <button class="mini tag-btn" data-id="${esc(s.id)}" data-seq="${esc(s.seq ?? '')}" title="改时间/人物/地点/事件">✎ 改标签</button></td>
       </tr>`).join('')}</tbody>`
-    : '<tbody><tr><td class="empty">还没有内容</td></tr></tbody>';
+    : '<tbody><tr><td class="empty">暂无记录</td></tr></tbody>';
 
   // 每行的「✎ 改标签」→ 打开标签编辑弹窗
   document.querySelectorAll('#libTable .tag-btn').forEach((b) => {
@@ -501,7 +501,7 @@ function renderGraph() {
   const host = $('#graph');
   const nodes = g.nodes || [];
   if (!nodes.length) {
-    host.innerHTML = '<div class="empty">还没有能画的内容。老人在对话里提到某个人之后，这里会出现他和你（自己为中心）。</div>';
+    host.innerHTML = '<div class="empty">暂无数据</div>';
     $('#graphNote').textContent = '';
     $('#graphDetail').innerHTML = '';
     return;
@@ -733,7 +733,7 @@ function showPlace(p) {
   d.innerHTML = `<button class="place-pop-x" title="关闭">✕</button>
     <h3>${esc(p.label)}</h3>
     <div class="place-pop-meta">${esc(when)}${p.spurs && p.spurs.length ? ' · ' + esc(p.spurs.map((sp) => sp.name).join('、')) : ''}</div>
-    <ul>${list.map((m) => `<li>${esc(m.statement)}</li>`).join('') || '<li class="muted">这里还没记下什么</li>'}</ul>
+    <ul>${list.map((m) => `<li>${esc(m.statement)}</li>`).join('') || '<li class="muted">暂无记录</li>'}</ul>
     <div class="place-pop-basis">定位依据：${esc(p.basis || '—')}</div>`;
   document.body.appendChild(d);
   d.querySelector('.place-pop-x').onclick = hidePlace;
@@ -778,7 +778,7 @@ function replayFlags() {
   /* 一次全画出来 —— 不再一面一面"插"。插旗动画看着热闹，
      但每次打开地图都要等好几秒，而且画完之前信息不完整。 */
   box.innerHTML = pts.map((p) => drawFlag(p, P)).join('');
-  $('#mapProgress').textContent = pts.length ? pts.length + ' 个地方' : '还没有能定位的地方';
+  $('#mapProgress').textContent = pts.length ? pts.length + ' 个地方' : '暂无可定位的地点';
   bindFlagClicks();
 }
 
