@@ -6,6 +6,8 @@
  * 对不上的地名不会瞎标，会列在下面提示"没能定位"。
  */
 
+import { getPlaceGeo } from './store.mjs';
+
 /** 省 / 自治区 / 直辖市（省会坐标，用于只讲到省时） */
 const PROVINCES = {
   北京: [116.41, 39.90], 天津: [117.20, 39.13], 上海: [121.47, 31.23], 重庆: [106.55, 29.56],
@@ -164,6 +166,16 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
         basis = `同句中提到${city.name}`;
         cityName = city.name;
         display = p.name.includes(city.name) ? p.name : `${city.name}·${p.name}`;
+      } else if (modelCity(p.name)) {
+        /* 坐标表和城市名表都没认出来（"剪子巷""国棉三厂"这类）——
+           用大模型判过的归属，缓存在 place_geo 里，不用每次重问。 */
+        const mc = modelCity(p.name);
+        lng = mc.coord[0];
+        lat = mc.coord[1];
+        basis = `${mc.why || '模型判断'}（${mc.city}）`;
+        cityName = mc.city;
+        display = p.name.includes(mc.city) ? p.name : `${mc.city}·${p.name}`;
+        approx = true;
       } else if (hometownCoord) {
         lng = hometownCoord[0];
         lat = hometownCoord[1];
@@ -467,4 +479,22 @@ export function simplifyMap(geojson, tol = 0.05) {
     return { type: 'Feature', properties: f.properties || {}, geometry: { type: 'MultiPolygon', coordinates: rings } };
   }).filter(Boolean);
   return { type: 'FeatureCollection', features };
+}
+
+/**
+ * 问大模型：这个地名归哪个城市？（结果缓存在 place_geo 表里）
+ *
+ * 为什么需要它：lookup() 和 cityIn() 是**字面匹配**，只认表里有的城市名。
+ * 老人说的"剪子巷""国棉三厂""城西"表里都没有，只能退到"老家附近"——
+ * 结果所有认不出的地方全挤在老家那个点上。
+ * 模型判过之后就有了归属，能各自落到该去的城市。
+ *
+ * 判成"不是地名"（车间/宿舍/屋里）的返回 null，不单独落点。
+ */
+function modelCity(name) {
+  const g = getPlaceGeo(name);
+  if (!g || g.geo === 0 || !g.city) return null;
+  const coord = lookup(g.city) || cityIn(g.city)?.coord;
+  if (!coord) return null;
+  return { city: g.city, coord, why: g.why || '' };
 }

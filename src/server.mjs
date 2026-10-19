@@ -14,10 +14,10 @@ import path from 'node:path';
 import { PUBLIC_DIR, DATA_DIR, readBody, log, fmtTime } from './util.mjs';
 import {
   stats, listSentences, deleteSentence, search, listEntities, recentUtterances, archive, dimensionMap, graph, dbTables, deleteDimension, updateSentence, pruneDimensions, getDb,
-  openCandidates, listTopics, resetAll, dumpIndex, getSentence, DB_FILE, putNote,
+  openCandidates, listTopics, resetAll, dumpIndex, getSentence, DB_FILE, putNote, putPlaceGeo, getPlaceGeo, allPlaceNames,
 } from './store.mjs';
 import { handleTurn, opening, getPersona, setPersona, analyze, watchCheck, notePoll, ackSpoken, judgeTimes, watchState, watchConfigure, watchClearLog, watchSetMood } from './engine.mjs';
-import { polishMany, narrateGroups, curateEvents } from './understand.mjs';
+import { polishMany, narrateGroups, curateEvents, judgePlaces } from './understand.mjs';
 import { llmStatus, saveLLMConfig, testLLM, PRESETS } from './llm.mjs';
 import { visionStatus, saveVisionConfig, lookAt, warmUp as visionWarmUp, stopFer, visionHealth } from './vision.mjs';
 import { asrConfig, saveAsrConfig, listen as asrListen, asrHealth, stopAsr, asrDebug } from './asr.mjs';
@@ -189,6 +189,20 @@ async function api(req, res, pathname, query) {
   }
 
   /* ---------------- 时间轴：润色 + 补时间 ---------------- */
+
+  if (pathname === '/api/map/places' && method === 'POST') {
+    /* 地图上"这个地方在哪儿"以前靠坐标表和城市名表做字面匹配，
+       认不出"剪子巷""国棉三厂"这类 —— 全退到"老家附近"，挤成一个点。
+       这里让模型判：是不是地名、归哪个城市，结果缓存在 place_geo。 */
+    const names = allPlaceNames().filter((name) => !getPlaceGeo(name));
+    if (!names.length) return json(res, 200, { ok: true, pending: 0, changed: 0 });
+    let changed = 0;
+    for (let k = 0; k < names.length; k += 20) {
+      const got = await judgePlaces({ persona: getPersona(), names: names.slice(k, k + 20) });
+      for (const g of got) { putPlaceGeo(g.name, g); changed += 1; }
+    }
+    return json(res, 200, { ok: true, pending: names.length, changed });
+  }
 
   if (pathname === '/api/timeline/curate' && method === 'POST') {
     /* 时间轴只放人生大事 —— 给还没判过的记忆补上判断 */

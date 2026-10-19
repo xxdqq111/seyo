@@ -255,7 +255,11 @@ ${list}
         const v = String(raw).trim();
         if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
         return pre + JSON.stringify(v || '');
-      });
+      })
+      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
+         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
+      .replace(/:\s*([,}\]])/g, ':""$1')
+      .replace(/,\s*([\]}])/g, '$1');
     try { arr = JSON.parse(fixed); } catch { return []; }
   }
   if (!Array.isArray(arr)) return [];
@@ -323,7 +327,11 @@ ${blocks}
         const v = String(rawV).trim();
         if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
         return pre + JSON.stringify(v || '');
-      });
+      })
+      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
+         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
+      .replace(/:\s*([,}\]])/g, ':""$1')
+      .replace(/,\s*([\]}])/g, '$1');
     try { arr = JSON.parse(fixed); } catch { return []; }
   }
   if (!Array.isArray(arr)) return [];
@@ -385,7 +393,11 @@ ${list}
         if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
         if (/^(true|false)$/i.test(v)) return pre + v.toLowerCase();
         return pre + JSON.stringify(v || '');
-      });
+      })
+      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
+         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
+      .replace(/:\s*([,}\]])/g, ':""$1')
+      .replace(/,\s*([\]}])/g, '$1');
     try { arr = JSON.parse(fixed); } catch { return []; }
   }
   if (!Array.isArray(arr)) return [];
@@ -455,7 +467,11 @@ ${list}
         if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
         if (/^(true|false)$/i.test(v)) return pre + v.toLowerCase();
         return pre + JSON.stringify(v || '');
-      });
+      })
+      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
+         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
+      .replace(/:\s*([,}\]])/g, ':""$1')
+      .replace(/,\s*([\]}])/g, '$1');
     try { arr = JSON.parse(fixed); } catch { return []; }
   }
   if (!Array.isArray(arr)) return [];
