@@ -2,7 +2,8 @@
    用同源 iframe 把目标页面装进来，父页面的全屏状态不会被浏览器退出。
    非全屏时保持原来的普通跳转，不影响网址/书签/刷新。 */
 (function () {
-  const NAV_SEL = 'a.nav-link[href="/"], a.nav-link[href="/family.html"]';
+  // 不只导航条：查看端的 logo（a.brand）也指向对话页，点它同样不能真跳转。
+  const NAV_SEL = 'a[href="/"], a[href="/family.html"]';
   const EMBED = new URLSearchParams(location.search).has('embed');
   const isEmbedded = EMBED && window.parent && window.parent !== window;
 
