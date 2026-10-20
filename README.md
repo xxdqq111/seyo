@@ -130,6 +130,8 @@ python -m venv .venv
 start.bat
 ```
 
+`start.bat` 会用独立浏览器配置打开 kiosk 全屏窗口。窗口左下角有「退出全屏」按钮，`Esc` 也可以关闭，`Alt+F4` 同样可以。
+
 默认打开：
 
 ```

@@ -40,6 +40,7 @@ $logOut = Join-Path $dataDir 'server.log'
 $logErr = Join-Path $dataDir 'server.log.err'
 $pidFile = Join-Path $dataDir 'seyo.pid'
 $url = "http://127.0.0.1:$Port/"
+$kioskUrl = "$url`?kiosk=1"
 
 function Ok($t) { Write-Host "  [OK]   $t" -ForegroundColor Green }
 function Warn($t) { Write-Host "  [注意] $t" -ForegroundColor Yellow }
@@ -54,8 +55,8 @@ function Pause-OnError {
 function Open-Page {
   if ($NoBrowser) { return }
   try {
-    # 优先用 Edge / Chrome 的 --kiosk 直接全屏打开；
-    # --kiosk 是窗口级全屏，切页面不会退出；页面里的全屏按钮只是兜底。
+    # 用 Edge / Chrome 的 --kiosk 打开；配合独立配置目录，不会复用普通窗口。
+    # 页面右下角有「退出全屏」按钮，Esc 也可以关闭 kiosk。
     $candidates = @()
     if ($env:ProgramFiles) {
       $candidates += (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
@@ -71,10 +72,10 @@ function Open-Page {
     $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($browser) {
       # 使用独立的浏览器配置目录：即使你平时已经开着 Chrome/Edge，
-      # --kiosk 也一定会新建一个真正全屏的 kiosk 窗口，而不是复用到普通窗口。
+      # --kiosk 也会新建一个真正全屏的独立窗口，而不是复用到普通窗口。
       $kioskProfile = Join-Path $dataDir 'kiosk-profile'
       if (-not (Test-Path $kioskProfile)) { New-Item -ItemType Directory -Path $kioskProfile -Force | Out-Null }
-      Start-Process $browser -ArgumentList @('--kiosk', "--user-data-dir=$kioskProfile", '--no-first-run', '--no-default-browser-check', '--password-store=basic', $url)
+      Start-Process $browser -ArgumentList @('--kiosk', "--user-data-dir=$kioskProfile", '--no-first-run', '--no-default-browser-check', '--password-store=basic', $kioskUrl)
       Ok "已全屏打开浏览器：$url"
     } else {
       Start-Process $url
