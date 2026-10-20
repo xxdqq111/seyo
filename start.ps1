@@ -70,7 +70,11 @@ function Open-Page {
     }
     $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($browser) {
-      Start-Process $browser -ArgumentList @('--kiosk', $url)
+      # 使用独立的浏览器配置目录：即使你平时已经开着 Chrome/Edge，
+      # --kiosk 也一定会新建一个真正全屏的 kiosk 窗口，而不是复用到普通窗口。
+      $kioskProfile = Join-Path $dataDir 'kiosk-profile'
+      if (-not (Test-Path $kioskProfile)) { New-Item -ItemType Directory -Path $kioskProfile -Force | Out-Null }
+      Start-Process $browser -ArgumentList @('--kiosk', "--user-data-dir=$kioskProfile", '--no-first-run', '--no-default-browser-check', '--password-store=basic', $url)
       Ok "已全屏打开浏览器：$url"
     } else {
       Start-Process $url
