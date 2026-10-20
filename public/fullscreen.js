@@ -2,8 +2,35 @@
    想切换页面还保持全屏，靠 start.bat 用 Edge/Chrome 的 --start-fullscreen 打开——
    那是浏览器窗口级全屏，换页不会丢；页面里的全屏按钮只是手动兜底。 */
 (function () {
-  // iframe 里的页面不要再请求全屏：全屏由父页面持有，子页面请求会把父页面顶掉。
-  if (window.parent && window.parent !== window) return;
+  // iframe 里的页面不要再请求自己的全屏：全屏由父页面持有，子页面请求会把父页面顶掉。
+  // 但设置里的全屏按钮要能用 —— 点击时把请求转给父页面。
+  if (window.parent && window.parent !== window) {
+    const btn = document.getElementById('fullscreenBtn');
+    if (!btn) return;
+    const pref = () => {
+      try { return localStorage.getItem('seyo.fullscreen') !== '0'; } catch { return true; }
+    };
+    const label = document.getElementById('fsLabel');
+    const setText = (t) => { if (label) label.textContent = t; else btn.textContent = t; };
+    const paint = () => {
+      const on = pref();
+      setText(on ? '全屏：开' : '全屏：关');
+      btn.classList.toggle('on', on);
+    };
+    btn.onclick = async () => {
+      const next = !pref();
+      try { localStorage.setItem('seyo.fullscreen', next ? '1' : '0'); } catch { /* ignore */ }
+      try {
+        const pdoc = window.parent.document;
+        if (next) await pdoc.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        else if (pdoc.fullscreenElement) await pdoc.exitFullscreen();
+      } catch { /* 父页面可能已不在全屏 */ }
+      paint();
+    };
+    try { window.parent.document.addEventListener('fullscreenchange', paint); } catch { /* ignore */ }
+    paint();
+    return;
+  }
   const btn = document.getElementById('fullscreenBtn');
   if (!btn) return;
   const supported = () => !!(document.documentElement.requestFullscreen);
