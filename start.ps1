@@ -1,4 +1,4 @@
-﻿<#
+<#
   岁语 · 一键启动
   ==========================================================================
   双击「start.bat」会跑到这里。做五件事：
@@ -54,8 +54,8 @@ function Pause-OnError {
 function Open-Page {
   if ($NoBrowser) { return }
   try {
-    # 优先用 Edge / Chrome 的 --start-fullscreen 直接全屏打开；
-    # 页面里的全屏按钮只是兜底（浏览器不允许无手势全屏时用）。
+    # 优先用 Edge / Chrome 的 --kiosk 直接全屏打开；
+    # --kiosk 是窗口级全屏，切页面不会退出；页面里的全屏按钮只是兜底。
     $candidates = @()
     if ($env:ProgramFiles) {
       $candidates += (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
@@ -70,7 +70,7 @@ function Open-Page {
     }
     $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($browser) {
-      Start-Process $browser -ArgumentList @('--start-fullscreen', $url)
+      Start-Process $browser -ArgumentList @('--kiosk', $url)
       Ok "已全屏打开浏览器：$url"
     } else {
       Start-Process $url

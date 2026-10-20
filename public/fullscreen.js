@@ -17,8 +17,9 @@
       return window.outerWidth >= screen.width - 2 && window.outerHeight >= screen.height - 2;
     } catch { return false; }
   };
-  const enter = async () => {
-    if (!supported() || document.fullscreenElement || browserFullscreen()) return;
+  const enter = async (force = false) => {
+    if (!supported() || document.fullscreenElement) return;
+    if (!force && browserFullscreen()) return;
     try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch { /* 等下一次点击 */ }
   };
   const exit = async () => {
@@ -52,12 +53,14 @@
     paint();
   });
   if (pref()) {
-    if (!browserFullscreen()) {
-      enter();
+    // 即使浏览器窗口看起来已经最大化/全屏，第一次点击也补一次网页全屏：
+    // Windows 最大化窗口有时 outer 也等于 screen，不能只靠尺寸判断。
+    if (!browserFullscreen()) enter();
+    if (!document.fullscreenElement) {
       const once = () => {
         document.removeEventListener('pointerdown', once);
         document.removeEventListener('keydown', once);
-        if (pref() && !document.fullscreenElement) enter();
+        if (pref() && !document.fullscreenElement) enter(true);
       };
       document.addEventListener('pointerdown', once, { once: true });
       document.addEventListener('keydown', once, { once: true });

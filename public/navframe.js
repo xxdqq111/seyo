@@ -39,11 +39,13 @@
   document.addEventListener('click', (e) => {
     const a = e.target.closest && e.target.closest(NAV_SEL);
     if (!a) return;
-    if (!inFullscreen()) return;             // 非全屏：正常跳转
+    // 这两个页面之间的切换一律在当前文档内完成：
+    // 只要发生真正的页面跳转，浏览器就会退出全屏，不能靠尺寸判断赌。
     e.preventDefault();
     const href = a.getAttribute('href');
     const f = ensureFrame();
     f.dataset.href = href;
+    f.dataset.full = inFullscreen() ? '1' : '0';
     f.src = frameHref(href);
   }, true);
 
@@ -61,7 +63,7 @@
   // 用户在 iframe 模式下退出全屏：回到普通页面，恢复网址
   const restore = () => {
     const f = document.getElementById('seyoNavFrame');
-    if (!f || inFullscreen()) return;
+    if (!f || f.dataset.full !== '1' || inFullscreen()) return;
     const href = f.dataset.href;
     if (href === '/' || href === '/family.html') location.href = href;
   };
