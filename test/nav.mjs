@@ -77,7 +77,7 @@ ok(fam.text.includes('/family.css') && !fam.text.includes('<style>'), '家人端
 const need = {
   '/': ['app', 'avatar', 'avatarStage', 'bubbles', 'micBtn', 'input', 'sendBtn', 'ttsSel', 'voiceSel',
     'accountBtn', 'accountModal', 'accountClose', 'accountTabs', 'atab-account', 'atab-settings',
-    'acctName', 'acctOldPw', 'acctNewPw', 'acctPwSave', 'logoutBtn', 'camBtn', 'fullscreenBtn',
+    'acctName', 'acctOldPw', 'acctNewPw', 'acctPwSave', 'logoutBtn', 'camBtn',
     'insideBtn', 'insideBody', 'colHeard', 'colRecall', 'colStore', 'colDb', 'status', 'statusText',
     // 吃药提醒：老人端只有提醒，没有设置
     'medBar', 'medRemind', 'medDoneBtn', 'medSnoozeBtn',
@@ -89,7 +89,7 @@ const need = {
   '/family.html': ['subtitle', 'banner', 'errBox', 'cards', 'tabs', 'p-timeline', 'p-memories',
     'p-graph', 'p-map', 'p-meds', 'timeline', 'groupChips', 'libTable', 'chinaMap', 'graph',
     'famAccountBtn', 'famAcctModal', 'famAcctTabs', 'famTabAccount', 'famTabSettings',
-    'famOldPw', 'famNewPw', 'famPwSave', 'famLogout', 'famEditPersona', 'famResetAll', 'fullscreenBtn',
+    'famOldPw', 'famNewPw', 'famPwSave', 'famLogout', 'famEditPersona', 'famResetAll',
     'medList', 'medToday', 'medName', 'medTimes', 'medAdd', 'medCancel'],
 };
 for (const [path, ids] of Object.entries(need)) {

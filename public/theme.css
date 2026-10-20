@@ -405,4 +405,3 @@ select.field { padding-right: 34px; cursor: pointer; }
 .switch.wide { width: 100%; }
 .switch:hover { background: var(--panel-sink); }
 .switch.on { background: var(--brand-soft); border-color: var(--brand-line); color: var(--brand); }
-.fs-ico { display: inline-flex; align-items: center; vertical-align: -3px; margin-right: 8px; }
