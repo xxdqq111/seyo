@@ -90,6 +90,12 @@
         <button id="camBtn" class="switch wide">摄像头：关</button>
       </div>
 
+      <div class="set-block">
+        <div class="set-title">显示</div>
+        <button id="fullscreenBtn" class="switch wide on"><span class="fs-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></span><span id="fsLabel">全屏：开</span></button>
+        <div class="set-label">默认打开页面时自动全屏；浏览器不让自动全屏时，点一下页面就会进入。</div>
+      </div>
+
       <section class="inside">
         <button class="inside-head" id="insideBtn" aria-expanded="false">
           <span class="inside-title">内部过程</span>
@@ -233,6 +239,7 @@
      下面 avatar.js 是 2D 版，两套接口一模一样 ——
      想切回 2D，把 app.js 里的 window.SeyoAvatar3D 换成 window.SeyoAvatar 就行。 -->
 <script src="/resetwatch.js"></script>
+<script src="/fullscreen.js"></script>
 <script src="/navframe.js"></script>
 <script type="module" src="/avatar3d.js"></script>
 <script src="/avatar.js"></script>

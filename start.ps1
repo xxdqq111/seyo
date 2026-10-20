@@ -54,7 +54,8 @@ function Pause-OnError {
 function Open-Page {
   if ($NoBrowser) { return }
   try {
-    # kiosk 窗口级全屏：打开即全屏，页面切换不会退出；Alt+F4 退出。
+    # 普通浏览器窗口；页面里的全屏开关负责进入/退出全屏。
+    # 浏览器不允许无手势自动全屏，所以第一次点击页面会补全屏。
     $candidates = @()
     if ($env:ProgramFiles) {
       $candidates += (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
@@ -69,11 +70,8 @@ function Open-Page {
     }
     $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($browser) {
-      # 独立配置目录 + kiosk：即使平时已经开着 Chrome/Edge，也会新建一个真正全屏的窗口。
-      $kioskProfile = Join-Path $dataDir 'kiosk-profile'
-      if (-not (Test-Path $kioskProfile)) { New-Item -ItemType Directory -Path $kioskProfile -Force | Out-Null }
-      Start-Process $browser -ArgumentList @('--kiosk', "--user-data-dir=$kioskProfile", '--no-first-run', '--no-default-browser-check', '--password-store=basic', $url)
-      Ok "已全屏打开浏览器：$url（Alt+F4 退出）"
+      Start-Process $browser -ArgumentList @($url)
+      Ok "已打开浏览器：$url"
     } else {
       Start-Process $url
       Ok "已打开浏览器：$url（如果不是全屏，点一下页面会自动全屏）"
