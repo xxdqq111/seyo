@@ -70,8 +70,10 @@ function Open-Page {
     }
     $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
     if ($browser) {
-      Start-Process $browser -ArgumentList @($url)
-      Ok "已打开浏览器：$url"
+      # 每次启动带一个新参数，避免浏览器复用旧标签页里的旧 HTML/JS
+      $pageUrl = "$url`?v=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+      Start-Process $browser -ArgumentList @($pageUrl)
+      Ok "已打开浏览器：$pageUrl"
     } else {
       Start-Process $url
       Ok "已打开浏览器：$url（如果不是全屏，点一下页面会自动全屏）"

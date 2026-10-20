@@ -2,6 +2,8 @@
    想切换页面还保持全屏，靠 start.bat 用 Edge/Chrome 的 --start-fullscreen 打开——
    那是浏览器窗口级全屏，换页不会丢；页面里的全屏按钮只是手动兜底。 */
 (function () {
+  // iframe 里的页面不要再请求全屏：全屏由父页面持有，子页面请求会把父页面顶掉。
+  if (window.parent && window.parent !== window) return;
   const btn = document.getElementById('fullscreenBtn');
   if (!btn) return;
   const supported = () => !!(document.documentElement.requestFullscreen);
