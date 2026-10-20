@@ -1,8 +1,8 @@
 ﻿<#
   岁语 · 一键启动
   ==========================================================================
-  双击「启动.bat」会跑到这里。做五件事：
-    ① 找 node（要 >= 23.4，因为用了 Node 内置的 node:sqlite）
+  双击「start.bat」会跑到这里。做五件事：
+    ① 找 node（要 >= 20，MySQL 驱动和 ESM 都要）
     ② 3789 上已经有岁语在跑 → 不重复起，直接开网页
     ③ 起服务（隐藏窗口，日志写 data\server.log，PID 写 data\seyo.pid）
     ④ 等它真的能应答
@@ -10,7 +10,7 @@
 
   为什么隐藏起来跑：
     老人的电脑上不该多一个黑窗口。服务在后台待着，日志在 data\server.log 里，
-    出了问题也能查。要停就双击「停止.bat」。
+    出了问题也能查。要停就双击「stop.bat」。
 
   参数：
     -Port 3789     换端口
@@ -54,8 +54,28 @@ function Pause-OnError {
 function Open-Page {
   if ($NoBrowser) { return }
   try {
-    Start-Process $url
-    Ok "已打开浏览器：$url"
+    # 优先用 Edge / Chrome 的 --start-fullscreen 直接全屏打开；
+    # 页面里的全屏按钮只是兜底（浏览器不允许无手势全屏时用）。
+    $candidates = @()
+    if ($env:ProgramFiles) {
+      $candidates += (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
+      $candidates += (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe')
+    }
+    if (${env:ProgramFiles(x86)}) {
+      $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe')
+      $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe')
+    }
+    if ($env:LocalAppData) {
+      $candidates += (Join-Path $env:LocalAppData 'Google\Chrome\Application\chrome.exe')
+    }
+    $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if ($browser) {
+      Start-Process $browser -ArgumentList @('--start-fullscreen', $url)
+      Ok "已全屏打开浏览器：$url"
+    } else {
+      Start-Process $url
+      Ok "已打开浏览器：$url（如果不是全屏，点一下页面会自动全屏）"
+    }
   } catch {
     Warn "浏览器没打开，自己访问：$url"
   }
@@ -84,12 +104,27 @@ function Test-Seyo {
 
 $h = Test-Seyo
 if ($h) {
-  Ok "岁语已经在跑了（记忆 $($h.stats.sentences) 条）"
-  Open-Page
-  Write-Host ''
-  Write-Host '  这个窗口 3 秒后自动关掉。' -ForegroundColor DarkGray
-  Start-Sleep -Seconds 3
-  exit 0
+  if (-not $h.db) {
+    Warn '检测到旧版服务（SQLite 版）还在跑，先停掉再启动 MySQL 版…'
+    try { & (Join-Path $PSScriptRoot 'stop.ps1') -Port $Port } catch { }
+    Start-Sleep -Seconds 2
+    $h = Test-Seyo
+    if ($h) {
+      Bad '旧版服务没停掉，没法换到 MySQL 版'
+      Write-Host '  请右键 stop.bat →「以管理员身份运行」，或任务管理器结束它，再双击 start.bat。'
+      Pause-OnError
+      exit 1
+    }
+  } else {
+    Ok "岁语已经在跑了（$($h.db)）"
+    Write-Host '  提示：如果刚改过代码、页面却还是旧样子 —— 先双击「stop.bat」再启动一次。' -ForegroundColor DarkGray
+    Write-Host '        已经在跑的旧进程不会自己加载新代码（手动 npm start 起的服务也算）。' -ForegroundColor DarkGray
+    Open-Page
+    Write-Host ''
+    Write-Host '  这个窗口 3 秒后自动关掉。' -ForegroundColor DarkGray
+    Start-Sleep -Seconds 3
+    exit 0
+  }
 }
 
 # --------------------------------------------------------------------------
@@ -115,24 +150,59 @@ foreach ($c in $candidates) {
     $v = "$v".Trim().TrimStart('v')
     $p = $v.Split('.')
     $major = [int]$p[0]; $minor = [int]$p[1]
-    if ($major -gt 23 -or ($major -eq 23 -and $minor -ge 4)) {
+    if ($major -ge 20) {
       $node = $c; $version = $v; break
     }
-    Warn "$c 是 v$v，太旧（要 23.4 以上，Node 才带 node:sqlite）"
+    Warn "$c 是 v$v，太旧（要 20 以上）"
   } catch { }
 }
 
 if (-not $node) {
-  Bad '没找到能用的 node（需要 23.4 以上）'
+  Bad '没找到能用的 node（需要 20 以上）'
   Write-Host ''
-  Write-Host '  到 https://nodejs.org 下 LTS 版本装一下，装完再双击启动.bat。'
+  Write-Host '  到 https://nodejs.org 下 LTS 版本装一下，装完再双击start.bat。'
   Pause-OnError
   exit 1
 }
 Ok "node v$version"
 
 # --------------------------------------------------------------------------
-# ③ 顺带报一下 Python 的情况（语音识别、表情识别要用）
+# ③ 数据库：本机 MySQL（没开就顺手拉起来）
+# --------------------------------------------------------------------------
+function Port-Open([int]$p) {
+  try {
+    $c = New-Object System.Net.Sockets.TcpClient
+    $iar = $c.BeginConnect('127.0.0.1', $p, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne(800)) { $c.Close(); return $false }
+    $c.EndConnect($iar); $c.Close(); return $true
+  } catch { return $false }
+}
+
+$mysqlHome = if ($env:SEYO_MYSQL_HOME) { $env:SEYO_MYSQL_HOME } else { 'D:\mysql' }
+$mysqlExe = Join-Path $mysqlHome 'mysql-8.0.46-winx64\bin\mysqld.exe'
+$mysqlIni = Join-Path $mysqlHome 'my.ini'
+if (-not (Port-Open 3306)) {
+  if ((Test-Path $mysqlExe) -and (Test-Path $mysqlIni)) {
+    Write-Host '  数据库没开，正在启动 MySQL…'
+    try {
+      Start-Process -FilePath $mysqlExe -ArgumentList @("--defaults-file=$mysqlIni") -WindowStyle Hidden
+    } catch { Warn "MySQL 起不来：$($_.Exception.Message)" }
+    for ($i = 0; $i -lt 40; $i++) {
+      Start-Sleep -Milliseconds 500
+      if (Port-Open 3306) { break }
+    }
+  }
+}
+if (Port-Open 3306) {
+  Ok 'MySQL 已连接（127.0.0.1:3306）'
+} else {
+  Warn 'MySQL 没在 3306 上跑起来'
+  Warn '  先双击 D:\mysql\启动MySQL.bat，确认能连上再启动岁语'
+  Warn '  或者改 data\mysql.json 里的连接信息 / 设 SEYO_MYSQL_HOME'
+}
+
+# --------------------------------------------------------------------------
+# ④ 顺带报一下 Python 的情况（语音识别、表情识别要用）
 #    找不到不算失败 —— 那两个是懒加载的，打字用对话完全不受影响
 # --------------------------------------------------------------------------
 $pyList = @(
@@ -157,7 +227,7 @@ if ($pyOk) {
 }
 
 # --------------------------------------------------------------------------
-# ④ 起服务
+# ⑤ 起服务
 # --------------------------------------------------------------------------
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force -Path $dataDir | Out-Null }
 
@@ -165,7 +235,7 @@ Write-Host ''
 Write-Host "  正在启动…（端口 $Port）"
 try {
   $proc = Start-Process -FilePath $node `
-    -ArgumentList @('src/server.mjs', '--port', "$Port") `
+    -ArgumentList @('src/server.mjs', '--port', "$Port", '--host', '0.0.0.0') `
     -WorkingDirectory $root -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput $logOut -RedirectStandardError $logErr
 } catch {
@@ -176,7 +246,7 @@ try {
 $proc.Id | Out-File -FilePath $pidFile -Encoding ascii
 
 # --------------------------------------------------------------------------
-# ⑤ 等它真的能应答
+# ⑥ 等它真的能应答
 # --------------------------------------------------------------------------
 $ready = $null
 for ($i = 0; $i -lt 40; $i++) {
@@ -213,11 +283,12 @@ Write-Host '  ──────────────────────
 Write-Host '  岁语正在陪着老人。' -ForegroundColor Green
 Write-Host ''
 Write-Host '  · 说话：按住话筒，或者直接打字'
-Write-Host '  · 右上角齿轮 = 设置（摄像头、内部过程）'
-Write-Host "  · 家人的记忆档案：${url}family.html"
+Write-Host '  · 右上角 👤 图标 = 账号与设置（全屏、声音、摄像头、内部过程）'
+Write-Host "  · 大屏查看端：${url}family.html"
+Write-Host "  · 家人远程端：${url}remote.html（手机用局域网 IP，见日志）"
 Write-Host ''
 Write-Host '  服务在后台跑，日志在 data\server.log' -ForegroundColor DarkGray
-Write-Host '  要停它：双击「停止.bat」' -ForegroundColor DarkGray
+Write-Host '  要停它：双击「stop.bat」' -ForegroundColor DarkGray
 Write-Host '  ────────────────────────────────────────'
 Write-Host ''
 Write-Host '  这个窗口 5 秒后自动关掉。' -ForegroundColor DarkGray

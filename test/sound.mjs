@@ -67,8 +67,8 @@ try {
 
   console.log('  声音开关的位置：');
   // 关键：它得在设置里，而且**不在主界面那排开关里**
-  chk(await ev(`document.getElementById('settings').contains(document.getElementById('soundBtn'))`),
-    '在设置面板里');
+  chk(await ev(`document.getElementById('accountModal').contains(document.getElementById('soundBtn'))`),
+    '在账号弹窗的「设置」页签里');
   chk(await ev(`!document.querySelector('.switches').contains(document.getElementById('soundBtn'))`),
     '★ 主界面那排开关里没有它了');
 
@@ -76,15 +76,13 @@ try {
   const label = await ev(`document.getElementById('soundBtn').textContent.trim()`);
   chk(label.includes('开启声音'), `按钮写着「${label}」`);
   chk(await ev(`document.getElementById('soundBtn').classList.contains('on')`), '★ 默认开着');
-  const note = await ev(`document.getElementById('soundNote').textContent.trim()`);
-  chk(note.length > 0, `说明：「${note}」`);
 
   console.log('\n  关掉再打开：');
   await ev(`document.getElementById('soundBtn').click()`);
   await sleep(400);
   chk((await ev(`localStorage.getItem('seyo.muted')`)) === '1', '关掉 → 记在本地');
-  chk(await ev(`document.getElementById('soundNote').textContent.includes('已关闭')`),
-    `说明跟着变：「${await ev(`document.getElementById('soundNote').textContent`)}」`);
+  chk(await ev(`document.getElementById('soundBtn').textContent.includes('声音已关')`),
+    '按钮文字跟着变「声音已关」');
   chk(await ev(`!document.getElementById('soundBtn').classList.contains('on')`), '按钮不再高亮');
 
   // 刷新，看记不记得

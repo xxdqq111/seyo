@@ -1,8 +1,9 @@
 @echo off
 REM ==========================================================================
-REM  Seyo - start (English alias of the launcher)
-REM  Same thing as the Chinese-named launcher in this folder.
-REM  Keep this file pure ASCII; the real logic is in start.ps1.
+REM  Seyo launcher shim.
+REM  IMPORTANT: keep this file pure ASCII. cmd.exe parses .bat with the OEM
+REM  codepage, so non-ASCII bytes here cause stray command errors. All the
+REM  real (Chinese) text lives in start.ps1, which handles UTF-8 fine.
 REM ==========================================================================
 setlocal
 cd /d "%~dp0"

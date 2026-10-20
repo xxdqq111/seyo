@@ -127,6 +127,13 @@ export function configure(patch = {}) {
   return next;
 }
 
+/** 恢复默认节奏（清掉之前调试时存进库里的奇怪数值） */
+export function resetConfig() {
+  try { setMeta('watch_config', null); } catch { /* 没库也能用 */ }
+  state.config = { ...DEFAULTS };
+  return state.config;
+}
+
 export const state = {
   config: loadConfig(),
   lastActivity: Date.now(),      // 上次"有人说话"（老人或岁语）

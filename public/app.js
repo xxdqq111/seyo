@@ -14,12 +14,31 @@ const api = async (url, body) => {
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (r.status === 401) {
+    location.href = '/login';
+    throw new Error('请先登录');
+  }
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
   return r.json();
 };
 
+/* 页面刷新后沿用同一个会话 ID，服务端才能把最近对话还回来。
+   （换账号登录时 login/退出会清掉它，避免把上一个账号的聊天记录带过来。） */
+function webSessionId() {
+  try {
+    let id = localStorage.getItem('seyo.session');
+    if (!id) {
+      id = 'web-' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('seyo.session', id);
+    }
+    return id;
+  } catch {
+    return 'web-' + Math.random().toString(36).slice(2, 10);
+  }
+}
+
 const S = {
-  sessionId: 'web-' + Math.random().toString(36).slice(2, 8),
+  sessionId: webSessionId(),
   persona: { agent_name: '岁语', self_ref: '小孙子', elder_call: '爷爷' },
   // 声音默认开着。上次明确关过才关 —— 在**声明的时候就恢复**，
   // 别等到后面再赋值：updateSoundNote() 在启动时就会根据它画按钮，
@@ -133,7 +152,7 @@ if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pic
    说话：两条路
    ----------------------------------------------------------------------
    local （默认）  本机神经网络合成（sherpa-onnx + 中文男声）
-                   先用 POST /api/say 拿到一段 WAV，再塞进 <audio> 播。
+                   先用 POST /api/say 拿到一段 WAV，再塞进 <audio>播。
                    文字和声音都不出这台机器。
 
    system         浏览器自带的 speechSynthesis（就是 Windows 的 Kangkang 那些）。
@@ -268,14 +287,12 @@ function speak(text) {
  */
 function fillVoiceList() {
   const sel = $('voiceSel');
-  const note = $('voiceNote');
   if (!sel) return;
 
   const list = zhVoices();
   if (!list.length) {
     sel.innerHTML = '<option>（这个浏览器没有中文嗓音）</option>';
     sel.disabled = true;
-    if (note) { note.textContent = '这台电脑没装中文朗读嗓音 —— 装一个中文本地语音包就能选了'; note.className = 'set-note warn'; }
     return;
   }
 
@@ -289,15 +306,6 @@ function fillVoiceList() {
     const so = v.name === (voice && voice.name) ? ' selected' : '';
     return `<option value="${esc(v.name)}"${so}>${esc(v.name)}${tag}${net}</option>`;
   }).join('');
-
-  if (note) {
-    const cloud = voice && voice.localService === false;
-    note.textContent = voice
-      ? `现在用的是 ${voice.name}${MALE_VOICE.test(voice.name) ? '（男声）' : ''}${
-        cloud ? ' —— 注意：这个要联网，说的话会发出去' : '（在本机念，不出门）'}`
-      : '';
-    note.className = cloud ? 'set-note warn' : 'set-note';
-  }
 }
 
 /** 换嗓音：立刻记住、立刻念一句让人听 */
@@ -317,63 +325,21 @@ function applyVoice(name, say = true) {
 }
 
 /**
- * 声音状态那一行（设置 → 声音）。
- * 分几种情况，说清楚现在是什么状况 —— 不然"没声音"只能靠猜。
+ * 声音按钮 / 「用什么念」下拉框的状态同步。
+ * （设置里的状态文字行已经去掉了，这里只负责把控件显示对。）
  */
 function updateSoundNote() {
-  const el = $('soundNote');
   const btn = $('soundBtn');
-  if (!el || !btn) return;
-  updateTtsNote();
+  const sel = $('ttsSel');
+  if (sel) sel.value = S.ttsEngine;
+  if (!btn) return;
   if (S.muted) {
-    el.textContent = '已关闭 —— 说的话只显示在屏幕上';
-    el.className = 'set-note';
-    btn.textContent = '🔇 声音已关';
+    btn.textContent = '声音已关';
     btn.classList.remove('on');
     return;
   }
-  btn.textContent = '🔊 开启声音';
+  btn.textContent = '开启声音';
   btn.classList.add('on');
-  if (S.audioBlocked) {
-    el.textContent = '浏览器把声音挡住了（页面还没被点过）—— 随便点一下屏幕就出声了';
-    el.className = 'set-note warn';
-  } else {
-    el.textContent = '声音开着';
-    el.className = 'set-note';
-  }
-}
-
-/**
- * 「用什么念」那一行。
- * 说清楚现在走的是哪条路、上回合成花了多久、失败了没有 ——
- * 不然"声音不对/没声音"只能靠猜。
- */
-function updateTtsNote() {
-  const el = $('ttsNote');
-  const sel = $('ttsSel');
-  if (!el || !sel) return;
-  sel.value = S.ttsEngine;
-
-  if (S.ttsEngine === 'system') {
-    el.textContent = window.speechSynthesis
-      ? '用浏览器自带的语音念 —— 立刻出声，音质一般（下面可以选嗓音）'
-      : '这个浏览器不支持系统语音 —— 换回上面那个吧';
-    el.className = window.speechSynthesis ? 'set-note' : 'set-note bad';
-    return;
-  }
-  if (S.ttsError) {
-    el.textContent = `本机合成用不了（${S.ttsError}）—— 已经自动退回系统语音`;
-    el.className = 'set-note warn';
-    return;
-  }
-  if (S.ttsMs) {
-    el.textContent = `本机神经网络合成：上次 ${S.ttsMs} 毫秒生成了 ${(S.ttsAudioMs / 1000).toFixed(1)} 秒语音`
-      + `（文字和声音都不出这台机器）`;
-    el.className = 'set-note';
-    return;
-  }
-  el.textContent = '本机神经网络（中文男声）—— 第一次说话要先加载模型，会慢几秒';
-  el.className = 'set-note';
 }
 
 /**
@@ -422,6 +388,30 @@ function bubble(role, text, tag) {
   return d;
 }
 
+/** 岁语把跟这段记忆相关的照片发出来（家人端给记忆加的图） */
+function photoBubble(photos) {
+  const d = document.createElement('div');
+  d.className = 'bubble me photos';
+  for (const ph of photos || []) {
+    if (!ph || !ph.url) continue;
+    const a = document.createElement('a');
+    a.href = ph.url;
+    a.target = '_blank';
+    a.rel = 'noreferrer';
+    const img = document.createElement('img');
+    img.src = ph.url;
+    img.alt = ph.caption || '照片';
+    img.loading = 'lazy';
+    a.appendChild(img);
+    d.appendChild(a);
+  }
+  if (!d.children.length) return null;
+  $('bubbles').appendChild(d);
+  $('bubbles').scrollTop = $('bubbles').scrollHeight;
+  while ($('bubbles').children.length > 60) $('bubbles').removeChild($('bubbles').firstChild);
+  return d;
+}
+
 /* ======================================================================
    一轮对话
    ====================================================================== */
@@ -439,14 +429,14 @@ async function say(raw) {
   try {
     const r = await api('/api/chat', { text, sessionId: S.sessionId });
     S.turns += 1;
-    /* ⚠️ 这里千万别写 S.quiet = ...
+    /* 这里千万别写 S.quiet = ...
        S.quiet 是老人自己按的「安静模式」，是个持久选择；
        而 r.mode 是引擎那边"他情绪不高，这 10 分钟只陪着、不问事"的临时窗口，
        两回事。原来写成覆盖，结果他只要回一句话，安静模式就被悄悄关掉了。
        临时窗口单独记在 S.companion 里。 */
     S.companion = r.mode === 'companion';
 
-    // 表情：陪伴 > 查到记忆 > 讲述 > 不知道
+    // 表情：陪伴 >查到记忆 >讲述 >不知道
     setFace(S.quiet || S.companion ? 'quiet'
       : r.strategy === 'answer' ? 'happy'
         : r.strategy === 'probe' ? 'soft'
@@ -457,6 +447,7 @@ async function say(raw) {
     // "相关度 0.85""整理入库 1 条""已合并"这些是给开发看的，老人看到只会觉得是废话；
     // 同样的信息在下面的「内部过程」面板里都有。
     bubble('me', r.reply);
+    if (Array.isArray(r.photos) && r.photos.length) photoBubble(r.photos);
 
     render(r);
     speak(r.reply);
@@ -521,7 +512,7 @@ function render(r) {
   const s = r.stats;
   $('colDb').innerHTML = `
     <h4>④ 库里现在有什么</h4>
-    <div class="row">主句库：<b>${s.sentences}</b> 条</div>
+    <div class="row">主句库：<b>${s.sentences}</b>条</div>
     <div class="row">人物 ${s.persons} · 地点 ${s.places} · 事件 ${s.events}</div>
     <div class="row">原话留档：${s.utterances} 句</div>
     <div class="row">索引词条：${s.indexed}</div>
@@ -738,6 +729,54 @@ const listenStopSafe = () => { listenStop().catch(() => {}); };
 /* ======================================================================
    装配
    ====================================================================== */
+function profileMissing(p) {
+  const customCall = p && p.elder_call && p.elder_call !== '爷爷';
+  return !customCall && !p?.birth_year && !p?.hometown;
+}
+
+/** 第一次打开老人端、且还没填基本信息：先弹出来问一下 */
+function maybeFirstUse(p) {
+  const box = $('firstUse');
+  if (!box) return;
+  if (!profileMissing(p)) { box.hidden = true; return; }
+  $('fuCall').value = p && p.elder_call && p.elder_call !== '爷爷' ? p.elder_call : '';
+  $('fuBirth').value = p && p.birth_year ? String(p.birth_year) : '';
+  $('fuHome').value = p && p.hometown ? p.hometown : '';
+  $('fuMsg').textContent = '';
+  box.hidden = false;
+  const close = () => { box.hidden = true; };
+  $('fuLater').onclick = close;
+  $('fuSave').onclick = async () => {
+    const year = $('fuBirth').value.trim();
+    if (year && !/^(18|19|20)\d{2}$/.test(year)) {
+      $('fuMsg').textContent = '出生年份写成四位数字，比如 1948';
+      return;
+    }
+    const call = $('fuCall').value.trim();
+    const home = $('fuHome').value.trim();
+    if (!year && !home && (!call || call === '爷爷')) {
+      $('fuMsg').textContent = '至少填一下称呼、出生年份或老家，岁语才认得您';
+      return;
+    }
+    const btn = $('fuSave');
+    btn.disabled = true;
+    try {
+      const r = await api('/api/persona', {
+        elder_call: call || '爷爷',
+        birth_year: year ? Number(year) : null,
+        hometown: home,
+      });
+      S.persona = r.persona || { ...S.persona, ...r };
+      $('agentName').textContent = S.persona.agent_name || '岁语';
+      close();
+    } catch (e) {
+      $('fuMsg').textContent = '没保存上：' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
 async function boot() {
   await pickAvatar();
   A.mount($('avatar'));
@@ -750,6 +789,7 @@ async function boot() {
     $('agentName').textContent = persona.agent_name;
     const sub = document.querySelector('.brand-text small');
     if (sub) sub.textContent = persona.self_ref ? `您的${persona.self_ref}` : '陪老人说话';
+    maybeFirstUse(persona);
   } catch { /* 用默认 */ }
 
   const tick = () => {
@@ -764,6 +804,15 @@ async function boot() {
   async function begin() {
     $('input').focus();
     status('idle', '在听您说话');
+    // 刷新后先把最近 10 条对话摆回来；有记录就不再重复说欢迎语
+    try {
+      const h = await api(`/api/history?sessionId=${encodeURIComponent(S.sessionId)}&limit=10`);
+      const items = Array.isArray(h.items) ? h.items : [];
+      if (items.length) {
+        for (const m of items) bubble(m.role === 'elder' ? 'you' : 'me', m.text);
+        return;
+      }
+    } catch { /* 拿不到就照常开场 */ }
     try {
       const o = await api('/api/opening', { sessionId: S.sessionId, reason: 'auto' });
       bubble('me', o.text);
@@ -846,7 +895,7 @@ async function boot() {
     speechSynthesis.addEventListener('voiceschanged', () => { pickVoice(); fillVoiceList(); });
   }
 
-  /* 「🤝 安静模式」= 一句主动的话都不说。
+  /* 「安静模式」= 一句主动的话都不说。
      老人什么时候想说话，自己按话筒或打字，那时候照常回。
      这个状态要同时做三件事，少一件就不成立：
        ① 改前端的样子（表情、气泡、按钮文案）
@@ -854,7 +903,7 @@ async function boot() {
        ③ 记在本地（刷新之后还得是这个模式） */
   const syncQuiet = async () => {
     $('quietBtn').classList.toggle('on', S.quiet);
-    $('quietBtn').textContent = S.quiet ? '🤝 安静模式：开着' : '🤝 安静模式';
+    $('quietBtn').textContent = S.quiet ? '安静模式：开着' : '安静模式';
     setFace(S.quiet ? 'quiet' : 'idle');
     localStorage.setItem('seyo.quiet', S.quiet ? '1' : '0');
     try { await api('/api/watch/config', { companion: S.quiet }); } catch { /* 服务没起来就算了 */ }
@@ -914,12 +963,10 @@ async function boot() {
       });
       try { await v.play(); } catch { /* 自动播放被拦也没关系，静音流一般能播 */ }
 
-      $('camBtn').textContent = '📷 摄像头：开（看着您的表情）';
+      $('camBtn').textContent = '摄像头：开（看着您的表情）';
       $('camBtn').classList.add('on');
       S.cameraOn = true;
       localStorage.setItem('seyo.camera', '1');
-      $('camNote').textContent = '正在看表情。画面只在本机识别，不上传。';
-      $('camNote').className = 'set-note';
       // 让服务端也打开视觉通道
       await api('/api/watch/config', { cameraEnabled: true });
 
@@ -939,9 +986,7 @@ async function boot() {
         NotFoundError: '没找到摄像头',
         SecurityError: '要用 127.0.0.1 或 https 打开',
       }[e.name] || e.name;
-      $('camBtn').textContent = `📷 打不开（${tip}）`;
-      $('camNote').textContent = `打不开：${tip}。修好之后刷新页面会自动再试。`;
-      $('camNote').className = 'set-note bad';
+      $('camBtn').textContent = `打不开（${tip}）`;
       console.warn('摄像头打不开：', e.name, e.message);
       status('idle', `摄像头打不开：${tip} —— 设置里有详细说明`);
     }
@@ -952,12 +997,10 @@ async function boot() {
     camTimer = null;
     if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
     $('cam').srcObject = null;
-    $('camBtn').textContent = '📷 摄像头：关（让岁语看表情）';
+    $('camBtn').textContent = '摄像头：关（让岁语看表情）';
     $('camBtn').classList.remove('on');
     S.cameraOn = false;
     localStorage.setItem('seyo.camera', '0');
-    $('camNote').textContent = '已关闭。点上面的按钮可以再打开。';
-    $('camNote').className = 'set-note';
     await api('/api/watch/config', { cameraEnabled: false });
     renderWatch();
   }
@@ -1013,7 +1056,7 @@ async function boot() {
       });
       // 服务端会告诉我们下次隔多久 —— 情绪不对时它会调快
       if (r?.watch) S.watch = r.watch;
-      // ★ 它可能已经顺手判过"该不该开口"了，有就直接显示，不用等轮询
+      //  它可能已经顺手判过"该不该开口"了，有就直接显示，不用等轮询
       if (r?.proactive) showProactive(r.proactive);
     } catch (e) {
       console.warn('看一眼失败：', e.message);
@@ -1031,7 +1074,7 @@ async function boot() {
       return false;
     }
 
-    /* ★ 页面打开之前说过的那句，不要重放。
+    /*  页面打开之前说过的那句，不要重放。
        服务端会保留最近 60 秒的开口，好让"别的标签页"也能拿到（多标签页场景）。
        但对一个**刚打开**的页面来说，那句是上一个页面的事 ——
        重放出来就会和开场问候一起冒出来，老人一次看到两条。 */
@@ -1040,7 +1083,7 @@ async function boot() {
       return false;
     }
 
-    /* ★ 后台标签页不许领。
+    /*  后台标签页不许领。
        这是踩过的坑：老人可能开着好几个页面（或者后台还挂着一个），
        主动开口的消息原来"谁先问归谁" —— 先问到的那个后台标签页把它领走了，
        老人正在看的那页就永远什么都不出现，可服务端日志里明明写了"主动开口"。
@@ -1082,24 +1125,372 @@ async function boot() {
 
   $('camBtn').onclick = () => (camStream ? camOff() : camOn());
 
-  /* 设置面板（右上角小角落）。
-     摄像头、内部过程都收在这里 —— 老人的主界面上就只剩"说话"这一件事。 */
-  const settings = $('settings');
-  const openSettings = (on) => {
-    settings.hidden = !on;
-    $('gearBtn').setAttribute('aria-expanded', on ? 'true' : 'false');
+  /* 账号 / 设置弹窗。
+     原来右上角的设置面板并进来，账号和设置共用同一个弹窗两个页签：
+       · 点「账号」→ 账号页签（当前用户、改密码、退出登录）
+       · 点右上角 → 设置页签（声音 / 摄像头 / 内部过程） */
+  const accountModal = $('accountModal');
+  function showAcctTab(name) {
+    for (const b of document.querySelectorAll('#accountTabs button')) {
+      b.classList.toggle('on', b.dataset.atab === name);
+    }
+    $('atab-account').hidden = name !== 'account';
+    $('atab-settings').hidden = name !== 'settings';
+  }
+  async function openAccount(tab = 'account') {
+    if (!accountModal) return;
+    accountModal.hidden = false;
+    showAcctTab(tab);
+    if (tab === 'account') {
+      try {
+        const r = await fetch('/api/auth/me');
+        if (r.status === 401) { location.href = '/login'; return; }
+        if (r.ok) $('acctName').textContent = (await r.json()).user?.username || '—';
+      } catch { /* 网络问题就先不显示名字 */ }
+    }
+  }
+  const closeAccount = () => {
+    if (!accountModal) return;
+    accountModal.hidden = true;
+    $('acctPwMsg').textContent = '';
   };
-  $('gearBtn').onclick = () => openSettings(settings.hidden);
-  $('settingsClose').onclick = () => openSettings(false);
-  // 点面板外面、或者按 Esc 也收起来
-  document.addEventListener('mousedown', (e) => {
-    if (settings.hidden) return;
-    if (settings.contains(e.target) || $('gearBtn').contains(e.target)) return;
-    openSettings(false);
+  $('accountBtn').onclick = () => openAccount('account');
+  $('accountClose').onclick = closeAccount;
+  $('accountTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-atab]');
+    if (btn) openAccount(btn.dataset.atab);
   });
+  accountModal.addEventListener('click', (e) => { if (e.target === accountModal) closeAccount(); });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !settings.hidden) openSettings(false);
+    if (e.key === 'Escape' && !accountModal.hidden) closeAccount();
   });
+
+  $('acctPwForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = $('acctPwMsg');
+    const oldPassword = $('acctOldPw').value;
+    const newPassword = $('acctNewPw').value;
+    const again = $('acctNewPw2').value;
+    msg.className = 'acct-msg';
+    if (!oldPassword || !newPassword) { msg.textContent = '旧密码和新密码都要填'; return; }
+    if (newPassword.length < 6) { msg.textContent = '新密码至少 6 位'; return; }
+    if (newPassword !== again) { msg.textContent = '两次输入的新密码不一样'; return; }
+    const btn = $('acctPwSave');
+    btn.disabled = true;
+    try {
+      const r = await api('/api/auth/change-password', { oldPassword, newPassword });
+      if (!r.ok) { msg.textContent = r.error || '改不了，再试一次'; return; }
+      msg.className = 'acct-msg ok';
+      msg.textContent = '密码改好了。其它设备上的登录已退出，这台继续用。';
+      $('acctOldPw').value = ''; $('acctNewPw').value = ''; $('acctNewPw2').value = '';
+    } catch (err) {
+      msg.textContent = err.message === '请先登录' ? '登录过期了，请重新登录' : ('改不了：' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  $('logoutBtn').onclick = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+    try { localStorage.removeItem('seyo.session'); } catch { /* ignore */ }
+    location.href = '/login';
+  };
+
+  /* 孩子发来的消息：轮询服务端，全部交给岁语用自己的话念出来，
+     老人端不增加任何按钮/聊天框。 */
+  async function pollFamilyMessages() {
+    try {
+      const r = await api('/api/family/pending');
+      const items = Array.isArray(r.items) ? r.items : [];
+      const ids = [];
+      let last = '';
+      for (const m of items) {
+        let text;
+        if (m.kind === 'like') text = '孩子给您今天的聊天点了个赞。';
+        else if (m.kind === 'summary_reply') text = `孩子回复了您今天的聊天：${m.text}`;
+        else text = `孩子给您发消息了：${m.text}`;
+        bubble('me', text);
+        last = text;
+        ids.push(m.id);
+      }
+      if (last) speak(last);
+      if (ids.length) {
+        await fetch('/api/family/ack', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids, sessionId: S.sessionId }),
+        }).catch(() => {});
+      }
+    } catch { /* 网络抖动就下一轮再试 */ }
+  }
+  pollFamilyMessages();
+  setInterval(pollFamilyMessages, 12000);
+
+  /* ==================================================================
+     吃药提醒
+     ------------------------------------------------------------------
+     设置里可以加"每天几点吃什么药"。页面每 30 秒问一次服务端，
+       · 快到点（提前 10 分钟）→ 弹卡片 + 岁语开口提醒；
+       · 到点了没确认 → 一直算"该吃了"，每 5 分钟再提醒一次；
+       · 老人按「我吃过了」→ 记下这一顿，今天的卡片消失；
+       · 「10 分钟后再提醒」只是压住这一顿，不会改成已吃；
+         压到什么时候记在 localStorage，刷新/重开页面也认。
+     ================================================================== */
+  let meds = null;                 // 最近一次 /api/meds 的结果
+  let medActive = null;            // 现在弹着的这一顿
+  /* 「10 分钟后再提醒」要能扛住刷新：存 localStorage，不是只放在内存里。
+     键是 medId|slot，值是压到什么时候（毫秒时间戳）；过期的自动清掉。 */
+  const MED_SNOOZE_KEY = 'seyo.medSnooze';
+  function loadMedSnooze() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(MED_SNOOZE_KEY) || '{}') || {};
+      const now = Date.now();
+      const out = {};
+      for (const [k, v] of Object.entries(raw)) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > now) out[k] = n;
+      }
+      return out;
+    } catch { return {}; }
+  }
+  const medSnooze = loadMedSnooze();
+  function saveMedSnooze() {
+    try { localStorage.setItem(MED_SNOOZE_KEY, JSON.stringify(medSnooze)); } catch { /* 隐私模式写不了就算了 */ }
+  }
+  const medSpokeAt = {};           // slot → 上次开口时间（5 分钟重复一次）
+  const medKey = (it) => it.medId + '|' + it.slot;
+  const minsText = (m) => (m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分钟` : `${m} 分钟`);
+
+  function renderMedBar() {
+    const bar = $('medBar');
+    if (!bar) return;
+    const items = (meds && meds.items) || [];
+    if (!items.length) { bar.hidden = true; return; }
+    const today = items.map((it) => {
+      const mark = it.state === 'done'
+        ? '<span class="med-state done" title="已吃"></span>'
+        : it.state === 'due' ? '<span class="med-state due" title="该吃"></span>' : '';
+      return `<span>${esc(it.time)} ${esc(it.name)}${mark}</span>`;
+    }).join(' · ');
+    const next = meds && meds.next;
+    let nextTxt;
+    if (!next) nextTxt = '今天的药都吃过了';
+    else if (next.state === 'due') nextTxt = `该吃 <b>${esc(next.time)} ${esc(next.name)}</b>了`;
+    else if (next.state === 'soon') nextTxt = `快到 <b>${esc(next.time)} ${esc(next.name)}</b>了（还有 ${minsText(Math.max(1, -next.minutes))}）`;
+    else nextTxt = `下次 <b>${esc(next.time)} ${esc(next.name)}</b>（还有 ${minsText(Math.max(1, -next.minutes))}）`;
+    bar.innerHTML = `<b>今天的药</b> ${today} <span class="medbar-next">${nextTxt}</span>`;
+    bar.hidden = false;
+  }
+
+  function speakReminder(it) {
+    const call = S.persona.elder_call || '爷爷';
+    let head;
+    if (it.state === 'soon') head = `${call}，还有 ${minsText(Math.max(1, -it.minutes))}就到吃${it.name}的时间了`;
+    else if (it.minutes > 0) head = `${call}，${it.name}还没吃呢，已经过点了`;
+    else head = `${call}，该吃${it.name}了`;
+    speak(`${head}${it.dose ? '，' + it.dose : ''}${it.note ? '，' + it.note : ''}。吃完跟我说一声。`);
+  }
+
+  function showMedRemind(it) {
+    medActive = it;
+    $('medRemindTitle').textContent = it.state === 'soon'
+      ? '快到吃药时间了'
+      : (it.minutes > 30 ? '这顿药还没吃' : '该吃药了');
+    const lines = [`<b>${esc(it.time)}</b>　<b>${esc(it.name)}</b>${it.dose ? '　' + esc(it.dose) : ''}`];
+    if (it.note) lines.push(`<span class="dim">${esc(it.note)}</span>`);
+    if (it.state === 'soon') lines.push(`还有 ${minsText(Math.max(1, -it.minutes))}`);
+    else if (it.minutes > 0) lines.push(`已经过了 ${minsText(it.minutes)}`);
+    $('medRemindText').innerHTML = lines.join('<br>');
+    $('medRemind').hidden = false;
+    const key = medKey(it);
+    if (Date.now() - (medSpokeAt[key] || 0) > 5 * 60 * 1000) {   // 没确认就每 5 分钟再说一次
+      medSpokeAt[key] = Date.now();
+      speakReminder(it);
+    }
+  }
+
+  function hideMedRemind() {
+    medActive = null;
+    $('medRemind').hidden = true;
+  }
+
+  async function loadMeds() {
+    let r;
+    try { r = await api('/api/meds'); } catch { return; }
+    meds = r;
+    renderMedBar();
+    const now = Date.now();
+    // 清掉已经过期的"压住"记录；没变的就不用反复写 localStorage
+    let snoozeChanged = false;
+    for (const k of Object.keys(medSnooze)) {
+      if (!(medSnooze[k] > now)) { delete medSnooze[k]; snoozeChanged = true; }
+    }
+    if (snoozeChanged) saveMedSnooze();
+    const pending = (r.items || []).filter((it) => it.state === 'due' || it.state === 'soon');
+    const pick = pending.find((it) => !(medSnooze[medKey(it)] > now));
+    if (!pick) { if (medActive) hideMedRemind(); return; }
+    showMedRemind(pick);
+  }
+
+  $('medDoneBtn').onclick = async () => {
+    if (!medActive) return;
+    const it = medActive;
+    const btn = $('medDoneBtn');
+    btn.disabled = true;
+    try {
+      const r = await api('/api/meds/confirm', { medId: it.medId, slot: it.slot });
+      meds = r;
+      delete medSnooze[medKey(it)];
+      saveMedSnooze();
+      hideMedRemind();
+      renderMedBar();
+      const call = S.persona.elder_call || '爷爷';
+      const said = `${call}，好，我记下了：${it.time} 的 ${it.name} 吃过了。`;
+      bubble('me', said);
+      speak(said);
+    } catch (e) {
+      $('medRemindText').innerHTML += `<br><span style="color:#a8381c">没记上：${esc(e.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  $('medSnoozeBtn').onclick = () => {
+    if (!medActive) return;
+    const it = medActive;
+    medSnooze[medKey(it)] = Date.now() + 10 * 60 * 1000;
+    saveMedSnooze();                 // 刷新/重开页面也记得"这顿先压 10 分钟"
+    hideMedRemind();
+    speak(`${S.persona.elder_call || '爷爷'}，好，我 10 分钟后再来提醒您。`);
+  };
+
+  // 先加载一次；之后每 30 秒问一次（页面切回前台也补一次）
+  loadMeds();
+  setInterval(loadMeds, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadMeds(); });
+  // 给自测 / 排查用：手动重算一次、看看当前状态
+  window.__seyoMeds = { reload: loadMeds, status: () => meds, active: () => medActive };
+
+  /* ---------------- 记事本 / 到点提醒 ----------------
+     老人说"5 分钟后提醒我关火" → 服务端记一条；
+     这里每 5 秒问一次，到点弹大卡片 + 念出来，点「知道了」才收。 */
+  let noteStatus = { items: [], due: [] };
+  let noteActive = null;
+  const noteQueue = [];
+  const noteShown = new Set();       // 这一页已经弹过的，避免每 5 秒重复念
+
+  function noteWhen(ms) {
+    if (ms <= 0) return '该做了';
+    if (ms < 60000) return '马上';
+    const min = Math.round(ms / 60000);
+    if (min < 60) return `${min} 分钟后`;
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    if (h < 24) return m ? `${h} 小时 ${m} 分钟后` : `${h} 小时后`;
+    const d = new Date(Date.now() + ms);
+    const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const day = new Date(d); day.setHours(0, 0, 0, 0);
+    const diff = Math.round((day - today) / 86400000);
+    if (diff <= 0) return `今天 ${hm}`;
+    if (diff === 1) return `明天 ${hm}`;
+    if (diff === 2) return `后天 ${hm}`;
+    return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hm}`;
+  }
+
+  function renderNotebook() {
+    const list = $('noteList');
+    if (!list) return;
+    const items = noteStatus.items || [];
+    if (!items.length) {
+      list.innerHTML = '<p class="note-empty">还没有记下的事。</p>';
+      return;
+    }
+    list.innerHTML = items.map((it) => {
+      const left = it.dueAt - Date.now();
+      return `<div class="note-row${left <= 0 ? ' soon' : ''}">
+        <span class="note-when">${esc(noteWhen(left))}</span>
+        <span class="note-txt">${esc(it.text)}</span>
+        <button class="note-del" data-id="${esc(it.id)}" title="删掉这条">×</button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.note-del').forEach((btn) => {
+      btn.onclick = async () => {
+        try { await fetch('/api/reminders/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' }); } catch { /* ignore */ }
+        await loadReminders();
+        renderNotebook();
+      };
+    });
+  }
+
+  async function loadReminders() {
+    let r;
+    try { r = await api('/api/reminders'); } catch { return; }
+    noteStatus = r;
+    if (!$('noteModal').hidden) renderNotebook();
+    for (const it of (r.due || [])) {
+      if (noteShown.has(it.id)) continue;
+      if (noteQueue.some((q) => q.id === it.id)) continue;
+      if (noteActive && noteActive.id === it.id) continue;
+      noteQueue.push(it);
+    }
+    if (!noteActive) showNextNote();
+  }
+
+  function speakNote(it) {
+    const call = S.persona.elder_call || '爷爷';
+    speak(`${call}，到点了，该${it.text}了。`);
+  }
+
+  function showNextNote() {
+    if (noteActive || !noteQueue.length) return;
+    const it = noteQueue.shift();
+    noteActive = it;
+    noteShown.add(it.id);
+    $('noteRemindText').textContent = it.text;
+    $('noteRemindSub').textContent = `记下的时间到了，做完点「知道了」。`;
+    $('noteRemind').hidden = false;
+    speakNote(it);
+  }
+
+  async function doneNote() {
+    if (!noteActive) return;
+    const it = noteActive;
+    const btn = $('noteDoneBtn');
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/reminders/' + encodeURIComponent(it.id) + '/done', { method: 'POST' });
+      if (!r.ok) throw new Error('没记上');
+      noteActive = null;
+      $('noteRemind').hidden = true;
+      noteQueue.length = 0;              // 重新按服务端返回的到点列表排队
+      noteShown.clear();
+      await loadReminders();
+      bubble('me', `好，${it.text}的事我记下了。`);
+      speak(`好，我记下了。`);
+    } catch (e) {
+      $('noteRemindSub').textContent = `没记上：${e.message}，再点一次试试。`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function toggleNotebook(open) {
+    const box = $('noteModal');
+    const show = open == null ? box.hidden : open;
+    box.hidden = !show;
+    if (show) { loadReminders().then(renderNotebook); }
+  }
+
+  $('notebookBtn').onclick = () => toggleNotebook();
+  $('noteClose').onclick = () => toggleNotebook(false);
+  $('noteModal').addEventListener('click', (e) => { if (e.target === $('noteModal')) toggleNotebook(false); });
+  $('noteDoneBtn').onclick = doneNote;
+
+  // 先问一次；之后每 5 秒问一次（页面切回前台也补一次）
+  loadReminders();
+  setInterval(loadReminders, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadReminders(); });
+  window.__seyoNotes = { reload: loadReminders, status: () => noteStatus, active: () => noteActive };
 
   /**
    * 轮询：现在该主动开口吗？（情绪低落 / 太久没说话）
@@ -1124,7 +1515,7 @@ async function boot() {
       S.seen = `询问失败：${e.message}`;
     } finally {
       polling = false;
-      // ★ 这里必须刷面板。以前 pollWatch 结束不 renderWatch，
+      //  这里必须刷面板。以前 pollWatch 结束不 renderWatch，
       // 面板上显示的一直是**上次**的状态 —— 于是会出现
       // "面板写着'该开口'，实际早就说过了"或者反过来，怎么都对不上。
       renderWatch();
@@ -1217,26 +1608,30 @@ async function boot() {
       <div class="score">页面看到：${esc(S.seen || '还没收到过结果')}${
         S.lastWatchError ? ` <b style="color:#a8381c">（出错：${esc(S.lastWatchError)}）</b>` : ''}</div>`;
 
+    const idleText = w.nextIdleInMinutes <= 0
+      ? '马上会主动搭话'
+      : `再过 ${w.nextIdleInMinutes} 分钟会主动搭话`;
     box.innerHTML = `
       <h4>⑤ 陪伴守望</h4>
-      <div class="row">闭嘴时长：<b>${w.silentMinutes}</b> 分钟${w.enabled ? `（再过 ${w.nextIdleInMinutes} 分钟会主动搭话）` : ''}</div>
+      <div class="row">闭嘴时长：<b>${w.silentMinutes}</b>分钟${w.enabled ? `（${idleText}）` : ''}</div>
       <div class="row">最近情绪：${moodText}</div>
       ${negLine}
       ${basis ? `<div class="score">判定依据：${basis.trim()}
         <br>规则：P(难过) ≥ 45% 且 消极 ≥ 50% 才算难过；消极 ≥ 65% 且积极 ≤ 22% 算"看着不太对劲"</div>` : ''}
       <div class="row">摄像头：${w.cameraOn ? '开着' : '关着'}${w.cameraOn ? `（每 ${Math.round((w.cameraNextMs || 15000) / 1000)} 秒看一眼${(w.lastMood && (w.lastMood.level === 'low' || w.lastMood.level === 'uneasy')) ? '，情绪不对已提速' : ''}）` : ''}</div>
-      ${/* ⚠️ 这两个节奏必须分开写清楚。
+      ${/* 这两个节奏必须分开写清楚。
             看脸看多勤 ≠ 说话说多勤 —— 看脸只管"看"，说话还要过一道道闸门。
             以前两个都是 15 秒，摆在一起会让人以为"每 15 秒就可能说一句"。 */''}
-      <div class="score">　看脸只管「看」，不打扰人；「说」是另一档，慢得多 ——</div>
-      <div class="score">　主动开口：最快每 <b>${Math.round((w.config?.debounceMs || 300000) / 60000)} 分钟</b>一次
+      <div class="score">看脸只管「看」，不打扰人；「说」是另一档，慢得多 ——</div>
+      <div class="score">主动开口：最快每 <b>${Math.round((w.config?.debounceMs || 300000) / 60000)} 分钟</b>一次
         （第一次发现情绪不对时不等；闲置搭话 ${Math.round((w.config?.minGapMs || 600000) / 60000)} 分钟一次）</div>
       ${spokeLine}
       ${pollLine}
       <div class="row">这会儿该开口吗：${w.due?.speak ? `<b class="say-yes">该（${w.due.reason === 'low_mood' ? '情绪不对，去关心' : '太久没说话，去看看'}）</b>` : esc(w.due?.reason || '—')}</div>
       <details class="gates"><summary>逐条闸门（为什么开口 / 为什么不开口）</summary>${trace}</details>
       <button class="mini" id="btnWatchTest">假装情绪低落，试一次</button>
-      <button class="mini" id="btnWatchClear">清空情绪记录</button>`;
+      <button class="mini" id="btnWatchClear">清空情绪记录</button>
+      <button class="mini" id="btnWatchReset">恢复默认节奏</button>`;
     const t = $('btnWatchTest');
     if (t) t.onclick = async () => {
       // 先喂一条"正常"把这一波结束掉，再喂难过。
@@ -1254,6 +1649,13 @@ async function boot() {
       S.watch = null;
       renderWatch();
     };
+    const r = $('btnWatchReset');
+    if (r) r.onclick = async () => {
+      await fetch('/api/watch/config', { method: 'DELETE' });
+      S.watch = null;
+      await pollWatch();
+      await renderWatch();
+    };
   }
 
   // 轮询由上面那个 5 秒看门狗负责 —— 它只在"距上次问超过 12 秒"时才真去问，
@@ -1270,8 +1672,6 @@ async function boot() {
       if (!camStream) {
         // 打不开（没权限/没设备）—— 别把 '0' 写进去，
         // 免得下次插上摄像头也还是不试。留着下次再自动试一次。
-        $('camNote').textContent = '这次没打开 —— 看看浏览器有没有问权限，或者摄像头被别的程序占着';
-        $('camNote').className = 'set-note warn';
       }
     }, 1200);
   }
@@ -1286,7 +1686,7 @@ async function loadLLMBox() {
   let st;
   try { st = await api('/api/llm'); } catch { box.textContent = '读不到大模型配置'; return; }
   if (st.available) {
-    box.innerHTML = `🟢 <b>已接大模型</b>：${esc(st.model)}（${esc(st.provider)}）<br>
+    box.innerHTML = `已<b>已接大模型</b>：${esc(st.model)}（${esc(st.provider)}）<br>
       <span class="score">说话由模型负责，记忆仍由本地引擎抽取、归档、核实</span>
       <button class="mini" id="llmTest">试一句</button>
       <button class="mini" id="llmClear">断开</button>
@@ -1302,7 +1702,7 @@ async function loadLLMBox() {
     };
     return;
   }
-  box.innerHTML = `⚪ <b>没接大模型</b>，现在用内置规则引擎说话（不够灵活）。<br>
+  box.innerHTML = `未<b>没接大模型</b>，现在用内置规则引擎说话（不够灵活）。<br>
     <span class="score">填一次下面任意一家的 API Key 就行，记忆仍留在本机数据库里：</span><br>
     <select id="llmPreset" class="mini" style="min-height:32px">
       <option value="deepseek">DeepSeek</option>
@@ -1344,7 +1744,7 @@ async function loadVisionBox() {
   const ready = Boolean(h.ready);
 
   box.innerHTML = `
-    <div class="row" style="margin-top:10px"><b>📷 表情识别</b>
+    <div class="row" style="margin-top:10px"><b>表情识别</b>
       <span class="pill ${ready ? 'green' : on ? 'gold' : 'gray'}">${
         ready ? '模型已就绪' : on ? '已开启，模型没起来' : '关闭中'}</span></div>
     <div class="score">看老人的表情，情绪不对就主动过去陪。<br>

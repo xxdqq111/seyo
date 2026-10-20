@@ -97,8 +97,7 @@ try {
   const probe = JSON.parse(await ev(`JSON.stringify(window.__audioProbe)`));
   chk(probe && probe.src.startsWith('blob:'), `拿到 WAV 后建了 <audio>（src=${probe && probe.src}）`);
   chk(await ev(`S.ttsMs > 0`), `记录了合成耗时 ${await ev(`S.ttsMs`)} ms`);
-  const note = await ev(`document.getElementById('ttsNote').textContent`);
-  chk(note.length > 0, `设置里的说明：「${note}」`);
+  chk(await ev(`document.getElementById('ttsSel').value === 'local'`), '「用什么念」下拉框仍选着本机神经网络');
 
   console.log('\n  切到系统语音：');
   await ev(`(() => { const s = document.getElementById('ttsSel'); s.value = 'system';

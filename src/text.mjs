@@ -196,88 +196,6 @@ const BARE_ASK = new RegExp(`^(${ACT})(一?[下个杯碗碟壶件张])?`);
 // 祈使 + 商量的尾巴
 const REQ_TAIL = /(好吗|行吗|行不行|可以吗|帮个忙|麻烦你|麻烦您)[。！？?!]?$/;
 
-/* ======================================================================
-   老人改口
-   ----------------------------------------------------------------------
-   老人经常会回头纠正自己（或者纠正岁语记错的地方）：
-
-     "那是1987年不是88年"
-     "不对，是八七年"
-     "说错了，应该是1987年"
-     "不是88年，是87年"
-
-   这些**不是新记忆**，是对已有记忆的修改。原来的做法直接把它当新事存下来
-   —— 于是时间轴上冒出"1987 年 · 那是1987年不是88年"这么一条，
-   而原来的 1988 纹丝不动，看着莫名其妙。
-
-   这里只负责**认出来 + 解析出改什么**，具体怎么落库交给 engine。
-   ====================================================================== */
-const CORRECTION_MARK = /(不对|不是|说错|记错|搞错|弄错|应该是|改成|改一下|更正|讲错|念错)/;
-
-/* 老人说年份爱用汉字："八七年""一九八七年"。先换成阿拉伯数字再解析。 */
-const CN_DIGIT = { 〇: '0', 零: '0', 一: '1', 二: '2', 两: '2', 三: '3', 四: '4', 五: '5', 六: '6', 七: '7', 八: '8', 九: '9' };
-function cnYears(s) {
-  return String(s).replace(/[〇零一二两三四五六七八九]{2,4}(?=\s*年)/g, (m) => (
-    m.split('').map((c) => CN_DIGIT[c] ?? c).join('')
-  ));
-}
-
-/** 两位的年份补成四位：87 → 1987（按出生年判断是 19xx 还是 20xx） */
-function fixYear(y, birthYear) {
-  const n = Number(y);
-  if (!Number.isFinite(n)) return null;
-  const len = String(y).length;
-  if (len === 4) return n;
-  if (len !== 2) return null;
-  const by = Number(birthYear) || 1948;
-  return (1900 + n) >= by ? 1900 + n : 2000 + n;
-}
-
-/**
- * 这句话是不是在改口？是就返回改什么，不是返回 null。
- *
- * 两种：
- *   { kind: 'year', from, to }            —— 改年份（from 是那个错的，可能没提）
- *   { kind: 'word', from, to }            —— 改说法（"是印染厂不是纺织厂"）
- *
- * @param {string} text
- * @param {{birthYear?: number}} opts
- */
-export function parseCorrection(text = '', { birthYear = null } = {}) {
-  const raw = String(text || '').trim();
-  if (!raw || raw.length > 30) return null;          // 长句子多半在讲事
-  const s = cnYears(clean(raw));
-  if (!s || !CORRECTION_MARK.test(s)) return null;
-
-  const grab = (part) => {
-    const m = /(1[89]\d{2}|20[0-4]\d|\d{2})\s*年/.exec(part);
-    return m ? fixYear(m[1], birthYear) : null;
-  };
-
-  /* 两种语序都要认：
-       "那是1987年不是88年"   → 对的在前，错的在"不是"后面
-       "不是88年，是87年"     → 错的在前，对的在后 */
-  const wrongPart = /不是([^，。！？、]{0,12})/.exec(s);
-  const wrong = wrongPart ? grab(wrongPart[1]) : null;
-  const rightPart = wrongPart ? s.replace(wrongPart[0], '') : s;
-  const right = grab(rightPart);
-
-  if (right !== null && right !== wrong) {
-    return { kind: 'year', from: wrong, to: right, raw: raw.slice(0, 40) };
-  }
-
-  /* 没有年份，看看是不是改说法：
-       "不对，是印染厂不是纺织厂"  → 对=印染厂 错=纺织厂
-       "不是纺织厂，是印染厂"      → 错=纺织厂 对=印染厂  */
-  if (right !== null) return null;                   // 只提了一个年份，就是它
-  const m1 = /是([\u4e00-\u9fa5A-Za-z0-9]{1,8})不是([\u4e00-\u9fa5A-Za-z0-9]{1,8})/.exec(s);
-  if (m1) return { kind: 'word', to: m1[1], from: m1[2], raw: raw.slice(0, 40) };
-  const m2 = /不是([\u4e00-\u9fa5A-Za-z0-9]{1,8})[，,]?\s*(?:那)?是([\u4e00-\u9fa5A-Za-z0-9]{1,8})/.exec(s);
-  if (m2) return { kind: 'word', from: m2[1], to: m2[2], raw: raw.slice(0, 40) };
-
-  return null;
-}
-
 export function isRequest(text = '') {
   const t = clean(text);
   if (!t) return false;
@@ -779,3 +697,113 @@ export function sentenceKinds(row = {}) {
 }
 
 export { STOP };
+
+/* ======================================================================
+   记事本：从一句话里认出"到点提醒我……"
+   ----------------------------------------------------------------------
+   支持的常见说法：
+     "5分钟后提醒我关火" / "五分钟后提醒我关火"
+     "半小时后提醒我把火关了" / "一个半小时后…"（按 90 分钟算）
+     "过 10 分钟提醒我吃药"
+     "明天早上 8 点提醒我关火" / "晚上八点半提醒我"
+   ---------------------------------------------------------------------- */
+const REMIND_MARK = /(提醒我|提醒一下|提醒|叫我|喊我|让我|闹钟)/;
+
+const CN_DIGITS = { 〇: 0, 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+
+/** "5" / "五" / "十五" / "半" / "一刻钟" → 数字 */
+function smallNumber(s) {
+  const t = String(s || '').trim();
+  if (!t) return NaN;
+  if (/^\d+$/.test(t)) return Number(t);
+  if (t === '半') return 0.5;
+  if (t === '一刻钟' || t === '一刻') return 15;
+  if (t.includes('十')) {
+    const [a, b] = t.split('十');
+    const left = a ? (CN_DIGITS[a] ?? NaN) : 1;
+    const right = b ? (CN_DIGITS[b] ?? NaN) : 0;
+    return Number.isFinite(left) && Number.isFinite(right) ? left * 10 + right : NaN;
+  }
+  if (t.length === 1 && t in CN_DIGITS) return CN_DIGITS[t];
+  return NaN;
+}
+
+const UNIT_MS = { 秒钟: 1000, 秒: 1000, 分钟: 60000, 分: 60000, 小时: 3600000, 钟头: 3600000, 天: 86400000 };
+
+/** 把时间说法和"提醒我"这些词从原句里拿掉，剩下的才是要提醒的内容 */
+function reminderContent(text, timeMatch = '') {
+  let s = String(text || '');
+  if (timeMatch) s = s.replace(timeMatch, ' ');
+  s = s
+    .replace(/(提醒我一下|提醒我|提醒一下|提醒|叫我|喊我|让我|定个闹钟|闹钟|记得)/g, ' ')
+    .replace(/^(岁语|小孙子|喂|那个|嗯|啊|哎|麻烦|请|帮我|能不能|可以|给我)[，,、\s]*/g, '')
+    .replace(/(好不好|行吗|行不行|可以吗|谢谢)[。！？?!]?$/g, '')
+    .replace(/[，,。！!？?、；;：:\s]+/g, ' ')
+    .trim();
+  return s.slice(0, 60);
+}
+
+function friendlyDelay(ms) {
+  const min = Math.round(ms / 60000);
+  if (ms < 60000) return `${Math.max(1, Math.round(ms / 1000))} 秒后`;
+  if (min < 60) return `${min} 分钟后`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} 小时 ${m} 分钟后` : `${h} 小时后`;
+}
+
+/**
+ * 解析"到点提醒"。不是提醒句 → null。
+ * @returns {null|{dueAt:number, delayMs:number, text:string, timeText:string, kind:string}}
+ */
+export function parseReminder(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw || raw.length > 80) return null;
+  if (!REMIND_MARK.test(raw)) return null;
+  // "我记得……"是回忆，不是让岁语记事
+  if (/^(我|俺|咱)?记得/.test(raw) && !/提醒|叫我|喊我|闹钟/.test(raw)) return null;
+
+  const now = Date.now();
+
+  /* ① 相对时间：X 秒 / 分钟 / 小时 / 天之后 */
+  let m = /(?:过|再|等|还有)?\s*([0-9]+|[一二两三四五六七八九十]+|半)\s*(?:个)?\s*(秒钟|秒|分钟|分|小时|钟头|天)\s*(?:之后|以后|后|过后)?/.exec(raw);
+  if (m) {
+    const amount = smallNumber(m[1]);
+    const unit = UNIT_MS[m[2]] || 0;
+    const delayMs = amount * unit;
+    if (Number.isFinite(delayMs) && delayMs >= 1000 && delayMs <= 365 * 86400000) {
+      const content = reminderContent(raw, m[0]) || '提醒您一下';
+      return { dueAt: now + delayMs, delayMs, text: content, timeText: friendlyDelay(delayMs), kind: 'relative' };
+    }
+  }
+  // "一刻钟后" 单独处理（没有"个"和数字）
+  m = /(?:过|再|等|还有)?\s*一刻钟\s*(?:之后|以后|后|过后)?/.exec(raw);
+  if (m) {
+    const delayMs = 15 * 60000;
+    const content = reminderContent(raw, m[0]) || '提醒您一下';
+    return { dueAt: now + delayMs, delayMs, text: content, timeText: friendlyDelay(delayMs), kind: 'relative' };
+  }
+
+  /* ② 绝对时间：今天/明天 + 早上/晚上 + 几点（半 / 一刻 / 15分） */
+  m = /(今天|明天|后天)?\s*(今早|今晚|早上|上午|中午|下午|晚上|夜里|凌晨)?\s*([0-9]{1,2}|[一二两三四五六七八九十]{1,3})\s*(?:点|时)\s*(半|[0-9]{1,2}|一刻)?\s*(?:分)?/.exec(raw);
+  if (m) {
+    let hour = smallNumber(m[3]);
+    const dayWord = m[1] || '';
+    const period = m[2] || '';
+    let minute = m[4] === '半' ? 30 : m[4] === '一刻' ? 15 : (m[4] ? Number(m[4]) : 0);
+    if (Number.isFinite(hour) && hour >= 0 && hour <= 23 && Number.isFinite(minute) && minute >= 0 && minute < 60) {
+      if (/(下午|晚上|今晚|夜里)/.test(period) && hour < 12) hour += 12;
+      if (period === '中午' && hour < 11) hour += 12;
+      if (period === '凌晨' && hour === 12) hour = 0;
+      const d = new Date(now);
+      const dayOffset = dayWord === '明天' ? 1 : dayWord === '后天' ? 2 : 0;
+      d.setDate(d.getDate() + dayOffset);
+      d.setHours(hour, minute, 0, 0);
+      if (d.getTime() <= now + 1000) d.setDate(d.getDate() + 1);
+      const content = reminderContent(raw, m[0]) || '提醒您一下';
+      const timeText = `${dayWord}${period}${hour}:${String(minute).padStart(2, '0')}`;
+      return { dueAt: d.getTime(), delayMs: d.getTime() - now, text: content, timeText, kind: 'absolute' };
+    }
+  }
+  return null;
+}

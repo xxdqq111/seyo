@@ -157,23 +157,57 @@ ${call}：你还记得你小时候我带你上公园吗
  * @param {string} o.text       老人刚说的
  * @param {boolean} o.companion 陪伴模式
  * @param {string} o.healthHint 老人反复说身体不舒服时的提醒（安全兜底）
+ * @param {string} o.inviteTopic 这一轮想引他讲的方向（约 10% 的轮次会带，空 = 不引导）
  */
-export function buildMessages({ persona, confirmed = [], story = '', history = [], text = '', companion = false, healthHint = '' }) {
+export function buildMessages({ persona, confirmed = [], story = '', history = [], text = '', companion = false, healthHint = '', inviteTopic = '', family = [] }) {
   const call = persona.elder_call || '爷爷';
 
   const lines = [];
   if (confirmed.length) {
     lines.push('【你确定知道的】');
     confirmed.forEach((m, i) => {
-      lines.push(`${i + 1}. ${m.statement}${m.time_label ? `（${m.time_label}）` : ''}`);
+      const photo = Number(m.photoCount) > 0 ? '（有照片）' : '';
+      lines.push(`${i + 1}. ${m.statement}${m.time_label ? `（${m.time_label}）` : ''}${photo}`);
     });
   }
   if (!confirmed.length) {
     lines.push('（空 —— 你什么都还不知道，这是第一次聊天）');
   }
+  const photoCount = confirmed.filter((m) => Number(m.photoCount) > 0).length;
 
   const archive = [persona.elder_name, persona.birth_year ? `${persona.birth_year} 年生` : '', persona.hometown]
     .filter(Boolean).join('，');
+
+  /* 照片：家里人给记忆配了老照片。模型看不了图，所以只让它"承认有，发出来"，
+     不许描述画面内容 —— 那会是它编的。 */
+  const photoRule = photoCount
+    ? ['', '【照片】',
+      `清单里有 ${photoCount} 条记忆标了「有照片」—— 是家里人放的他年轻时候的老照片。`,
+      '- 他问"有图片吗""有照片吗""给我看看照片"：直接说"有，我给您找找/您看看"，**不许说自己没有照片、啥都没有**。',
+      '- 你看不清照片里是谁、是什么样（还没接识图）：只说"有照片"，**不要描述照片里有什么**，也不要说"照片上那个人是…"。',
+      '- 他没问照片时，别主动拿照片当话头。'].join('\n')
+    : ['', '【照片】', '他要是问照片：现在没有照片，就老实说"照片我这儿暂时没有，让家里人给您放一张"，不要编。'].join('\n');
+
+  const familyBlock = (() => {
+    const rows = (Array.isArray(family) ? family : []).slice(-5);
+    const head = ['', '【最近孩子发来的消息】'];
+    if (!rows.length) {
+      return [...head,
+        '（暂无新消息）',
+        `- ${call}问"孩子有没有发消息""孩子说什么"：如实说"孩子这会儿还没发新消息"，不要说自己看不了手机、让他找别人看。`,
+      ].join('\n');
+    }
+    const lines = rows.map((m, i) => {
+      const t = String(m.text || '').slice(0, 160);
+      if (m.kind === 'like') return `${i + 1}. 孩子给当天的聊天点了个赞`;
+      if (m.kind === 'summary_reply') return `${i + 1}. 孩子回复当天的总结：${t}`;
+      return `${i + 1}. ${t}`;
+    });
+    return [...head, ...lines,
+      `- ${call}问孩子有没有消息/说了什么：照上面如实告诉，别编；可以顺势问他'要不要回一句'。`,
+      '- 这就是孩子**真的发来**的消息，不是你的猜测；除了这些，别编造孩子说过的话。',
+    ].join('\n');
+  })();
 
   const system = [
     buildPersona(persona),
@@ -183,6 +217,8 @@ export function buildMessages({ persona, confirmed = [], story = '', history = [
     '下面是你知道的**全部**。清单以外的事，你一概不知道，要老实说不知道。',
     '',
     lines.join('\n'),
+    photoRule,
+    familyBlock,
   ].filter((x) => x !== '').join('\n');
 
   // 用真正的多轮结构（而不是把上下文塞进一条 user 消息）——
@@ -221,7 +257,23 @@ ${healthHint}
   const extra = [];
   if (story) extra.push(`（正在聊的这件事：${story}）`);
   if (companion) extra.push(`（他现在情绪不高，只陪着，不要提问、不要提旧事）`);
-  msgs.push({ role: 'user', content: extra.length ? `${text}\n\n${extra.join('\n')}${safety}` : `${text}${safety}` });
+
+  /* 约 10% 的轮次（引擎里掷骰子决定）会带上这句：
+     在正常回话之外，把话头往他以前的一件事上引，请他讲讲**新的**往事。
+     注意：不是把记忆清单里的原话再问一遍（那种"您上回说…"很招人烦）。 */
+  const invite = inviteTopic ? `
+
+【这一轮：顺带引他讲讲以前的事】
+他这句说完、你该答的答完之后，可以自然地把话头往这个方向引，让他自己讲：
+「${inviteTopic}」
+要求：
+- **不是让你复述记忆清单**：别说什么"您上回说…"，也别拿清单里已经记着的事去反问。
+  就是像"您小时候有什么好玩的事儿吗"这样，开放地问，让他说**新的**往事。
+- 只问**一个小问题**，不要连环问；一共不超过两句：一句接话 + 一句引导。
+- 不许替他补具体的人名、地点、年份、细节 —— 你不知道的，就让他自己说。
+- 他要是情绪不高、或者这轮说的是身体不舒服，就只接他的话，别引旧事。` : '';
+
+  msgs.push({ role: 'user', content: extra.length ? `${text}\n\n${extra.join('\n')}${safety}${invite}` : `${text}${safety}${invite}` });
 
   return msgs;
 }
@@ -229,13 +281,34 @@ ${healthHint}
 /* ======================================================================
    主动开口
    ====================================================================== */
-export function buildOpeningMessages({ persona, confirmed = [], recent = [] }) {
+export function buildOpeningMessages({ persona, confirmed = [], recent = [], firstTime = false }) {
   const call = persona.elder_call || '爷爷';
   const mem = [...confirmed];
   const memText = mem.length
     ? mem.slice(-25).map((m, i) => `${i + 1}. ${m.statement}${m.time_label ? `（${m.time_label}）` : ''}`).join('\n')
     : '（还没有任何记忆，这是第一次聊天）';
   const recentText = recent.length ? recent.map((t, i) => `${i + 1}. ${t}`).join('\n') : '（这是第一次开口）';
+
+  /* 第一次用、还没有任何对话记录：先介绍自己，不要上来就问问题。 */
+  if (firstTime) {
+    const system = `这是${call}第一次用岁语，还没有任何对话记录。你刚到他身边，先介绍自己。
+
+【你是谁】
+你叫「${persona.agent_name || '岁语'}」，是${call}的${persona.self_ref || '小孙子'}。
+
+【要求】
+- 先用一两句话介绍自己：叫什么、是谁、以后会陪他说话
+- 不要提任何记忆，不要问问题，不要说“您好，请问有什么可以帮您”
+- 语气像孙子推门进屋，自然、亲近
+- 总共不超过 45 字
+- 只输出这句话本身，不要引号，不要解释，不要换行
+
+例：${call}，我是${persona.agent_name || '岁语'}，您的${persona.self_ref || '小孙子'}。往后我就在这儿陪您说说话。`;
+    return [
+      { role: 'system', content: system },
+      { role: 'user', content: `（${call}刚坐下，还没说话）` },
+    ];
+  }
 
   const system = `你是${call}的${persona.self_ref || '小孙子'}。他刚坐下，还没开口，你主动起个话头。
 

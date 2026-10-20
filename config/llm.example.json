@@ -1,0 +1,8 @@
+{
+  "baseUrl": "https://api.deepseek.com/v1",
+  "model": "deepseek-chat",
+  "apiKey": "change_me",
+  "temperature": 0.9,
+  "maxTokens": 300,
+  "timeoutMs": 25000
+}

@@ -1,0 +1,1573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#faf6ef">
+<title>岁语 · 家人端</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/family.css">
+<style>
+  .mood-alert {
+    display: flex; align-items: flex-start; gap: 14px;
+    margin: 0 0 18px; padding: 16px 18px;
+    background: #fff4e2; border: 1px solid #e8c27a; border-radius: 16px;
+    color: #7a4a12;
+  }
+  .mood-alert[hidden] { display: none; }
+  .mood-alert-ico { font-size: 28px; line-height: 1.2; }
+  .mood-alert b { font-size: 17px; }
+  .mood-alert p { margin: 4px 0 0; font-size: 14px; line-height: 1.7; }
+  .msg-thread {
+    display: flex; flex-direction: column; gap: 10px;
+    max-height: 46vh; overflow: auto; padding: 4px 2px 10px;
+  }
+  .msg-row { display: flex; }
+  .msg-row.family { justify-content: flex-end; }
+  .msg-bubble {
+    max-width: min(78%, 560px); padding: 10px 14px; border-radius: 16px;
+    background: #fff; border: 1px solid var(--line); line-height: 1.6; font-size: 15px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg-row.family .msg-bubble { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .msg-row.notice .msg-bubble { background: #f7f1e6; color: var(--dim); font-size: 13px; }
+  .msg-meta { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  .msg-compose { display: flex; gap: 8px; margin-top: 12px; }
+  .msg-compose input {
+    flex: 1; min-width: 0; min-height: 46px; padding: 0 13px;
+    border: 1px solid var(--line); border-radius: 12px; font: inherit; font-size: 15px;
+  }
+  .msg-compose button, .daily-acts button {
+    min-height: 46px; padding: 0 16px; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; font: inherit; font-size: 15px;
+  }
+  .msg-compose button.primary, .daily-acts button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .daily-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; font-size: 16px; line-height: 1.9; white-space: pre-wrap; }
+  .daily-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .daily-acts input { flex: 1; min-width: 180px; min-height: 46px; padding: 0 13px; border: 1px solid var(--line); border-radius: 12px; font: inherit; }
+  .daily-stats { font-size: 13px; color: var(--dim); }
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <div class="wrap">
+    <a class="brand" href="/remote.html">
+      <span class="brand-mark">岁</span>
+      <span class="brand-text"><b>岁语 · 家人</b></span>
+    </a>
+    <nav class="nav-links">
+      <button class="nav-link" id="famAccountBtn" type="button" title="账号与设置" aria-label="账号与设置"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"></circle><path d="M4.5 20c.8-4 3.8-6.2 7.5-6.2s6.7 2.2 7.5 6.2"></path></svg></span></button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+
+    <div class="page-head">
+      <h1>家人端</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+
+    <!-- 老人心情不好时，这里会出现提醒 -->
+    <div class="mood-alert" id="moodAlert" hidden>
+      
+      <div>
+        <b>老人今天心情不太好</b>
+        <p id="moodAlertText">岁语注意到老人有些低落。可以发条消息，或打个电话过去。</p>
+      </div>
+    </div>
+
+  <!-- 改基本信息（称呼 / 出生年份 / 老家）-->
+  <div class="modal" id="personaModal" hidden>
+    <div class="modal-box">
+      <h3>基本信息</h3>
+      <p class="modal-hint">用于称呼、年份换算和地图定位。</p>
+      <label class="fld"><span>称呼</span><input id="pfCall" placeholder="爷爷"></label>
+      <label class="fld"><span>出生年份</span><input id="pfBirth" inputmode="numeric" placeholder="1948"></label>
+      <label class="fld"><span>老家</span><input id="pfHome" placeholder="北京"></label>
+      <div class="modal-acts">
+        <button class="mini" id="pfCancel">取消</button>
+        <button class="mini primary" id="pfSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑一条记忆：内容 + 时间 / 人物 / 地点 / 事件 -->
+  <div class="modal" id="tagModal" hidden>
+    <div class="modal-box">
+      <h3>编辑这条记忆</h3>
+      <label class="fld"><span>记忆内容</span><input id="tgStatement" placeholder="整理后的那句话"></label>
+      <label class="fld"><span>时间说法</span><input id="tgTime" placeholder="青年时期 / 1968 年"></label>
+      <label class="fld"><span>年份（四位，可空）</span><input id="tgYear" inputmode="numeric" placeholder="1968"></label>
+      <label class="fld"><span>人物（逗号分隔）</span><input id="tgPersons" placeholder="张师傅, 老伴秀兰"></label>
+      <label class="fld"><span>地点（逗号分隔）</span><input id="tgPlaces" placeholder="国棉三厂, 细纱车间"></label>
+      <label class="fld"><span>事件（逗号分隔）</span><input id="tgEvents" placeholder="当挡车工"></label>
+      <div class="modal-acts">
+        <button class="mini" id="tgCancel">取消</button>
+        <button class="mini primary" id="tgSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+  <div class="banner" id="errBox" hidden style="background:#fff0ec;border-color:#f0c4b4;color:#8a3a1c"></div>
+  <div class="cards" id="cards"></div>
+  <div class="banner" id="watch" hidden></div>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="timeline" class="on">人生时间轴</button>
+    <button data-tab="memories">记忆库</button>
+    <button data-tab="graph">人物图谱</button>
+    <button data-tab="map">足迹地图</button>
+    <button data-tab="meds">吃药提醒</button>
+    <button data-tab="messages">和家人说话</button>
+    <button data-tab="daily">今日总结</button>
+  </nav>
+
+  <section class="panel" id="p-timeline">
+    <h2>人生时间轴</h2>
+    <div class="timeline" id="timeline"><p class="empty">载入中……</p></div>
+  </section>
+
+  <!-- 原来这里是三个页签：四个维度 / 主句库 / 数据库。
+       其实都是在看同一批记忆 —— 一张表、按维度分组、和原始行。
+       合成一个面板：上面搜、中间按维度分组、下面原始数据。 -->
+  <section class="panel" id="p-memories" hidden>
+    <h2>记忆库</h2>
+    <div class="filters">
+      <input id="q" placeholder="搜索记忆">
+      <button class="primary" id="btnSearch">搜索</button>
+      <button id="btnAll">全部</button>
+      <button id="btnCsv">导出 CSV</button>
+    </div>
+    <div class="filters" id="groupBar">
+      <span class="muted" style="font-size:13px">分组看：</span>
+      <button data-group="" class="on">不分组</button>
+      <button data-group="person">人物</button>
+      <button data-group="time">时间</button>
+      <button data-group="place">地点</button>
+      <button data-group="event">事件</button>
+    </div>
+    <div id="groupChips"></div>
+    <div id="searchInfo"></div>
+    <table id="libTable"></table>
+    <div class="lib-foot">
+      <span class="muted" id="dbFileInfo"></span>
+      <button class="mini" id="btnPrune">清理空条目</button>
+      <a class="mini" href="/api/db" download>下载数据(JSON)</a>
+    </div>
+  </section>
+
+  <section class="panel" id="p-graph" hidden>
+    <h2>人物图谱</h2>
+    <div id="graph"></div>
+    <div class="legend">
+      <i style="background:#3c3630"></i>老人自己（中心）
+      <i style="background:var(--warm);margin-left:12px"></i>他说到的人
+      <span id="graphNote" style="margin-left:12px"></span>
+    </div>
+    <div id="graphDetail" style="margin-top:12px"></div>
+  </section>
+
+  <section class="panel" id="p-map" hidden>
+    <h2>足迹地图</h2>
+    <div class="filters">
+      <span class="muted" id="mapProgress"></span>
+    </div>
+    <div id="mapWrap" style="position:relative;width:100%">
+      <div id="chinaMap" style="width:100%;min-height:460px"><p class="empty">载入地图中……</p></div>
+    </div>
+    <div class="legend" style="margin-top:10px">
+      <i style="background:var(--warm)"></i>按年份定位
+      <i style="background:#c08a2e;margin-left:12px"></i>按老家附近定位（约）
+      <span id="mapNote" style="margin-left:12px"></span>
+    </div>
+          </section>
+
+  <section class="panel" id="p-meds" hidden>
+    <h2>吃药提醒</h2>
+    <div class="med-list" id="medList"></div>
+    <div class="med-form">
+      <input id="medName" class="med-input" placeholder="药名，比如：降压药" autocomplete="off">
+      <input id="medDose" class="med-input" placeholder="每次吃多少，比如：1 片（可不填）" autocomplete="off">
+      <input id="medTimes" class="med-input" placeholder="每天几点：08:00，或 08:00,20:00" autocomplete="off">
+      <input id="medNote" class="med-input" placeholder="备注：饭后吃 / 随餐（可不填）" autocomplete="off">
+      <button id="medAdd" class="mini primary">＋ 添加这个药</button>
+      <button id="medCancel" class="mini" hidden>取消编辑</button>
+    </div>
+    <div id="medMsg" class="muted" style="margin-top:6px"></div>
+
+    <h3 style="font-size:17px;margin:24px 0 8px">今天的药</h3>
+    <div id="medToday"><p class="muted">载入中……</p></div>
+  </section>
+
+  <section class="panel" id="p-messages" hidden>
+    <h2>聊天</h2>
+    <p class="muted"></p>
+    <div class="msg-thread" id="msgThread"><p class="muted">载入中……</p></div>
+    <div class="msg-compose">
+      <input id="msgInput" placeholder="给老人说句话……" maxlength="500" autocomplete="off">
+      <button class="primary" id="msgSend">发送</button>
+    </div>
+    <div class="muted" id="msgStatus" style="margin-top:8px"></div>
+  </section>
+
+  <section class="panel" id="p-daily" hidden>
+    <h2>今日总结</h2>
+    <p class="muted" id="dailyDay"></p>
+    <div class="daily-card" id="dailyCard">载入中……</div>
+    <div class="daily-acts">
+      <button id="dailyLike">点赞</button>
+      <input id="dailyReply" placeholder="回复一句……" maxlength="500" autocomplete="off">
+      <button class="primary" id="dailyReplySend">回复</button>
+      <button id="dailyRefresh">刷新</button>
+    </div>
+    <div class="daily-stats" id="dailyStats" style="margin-top:8px"></div>
+    <div class="muted" id="dailyStatus" style="margin-top:6px"></div>
+  </section>
+
+  </div>
+</main>
+
+<!-- 账号 / 设置弹窗（和老人端、查看端同一套结构、同一套样式） -->
+<div class="account-modal" id="famAcctModal" hidden>
+  <div class="account-card">
+    <div class="account-head">
+      <div class="account-tabs" id="famAcctTabs">
+        <button data-ftab="account" class="on">账号</button>
+        <button data-ftab="settings">设置</button>
+      </div>
+      <button class="account-close" id="famAcctClose" title="收起">×</button>
+    </div>
+
+    <div class="account-body" id="famTabAccount">
+      <div class="account-who">当前登录：<b id="famAcctName">…</b></div>
+
+      <h3 class="acct-sub">修改密码</h3>
+      <label class="acct-label" for="famOldPw">旧密码</label>
+      <input class="acct-input" id="famOldPw" type="password" autocomplete="current-password" placeholder="输入现在的密码">
+      <label class="acct-label" for="famNewPw">新密码</label>
+      <input class="acct-input" id="famNewPw" type="password" autocomplete="new-password" placeholder="至少 6 位">
+      <label class="acct-label" for="famNewPw2">再输一次新密码</label>
+      <input class="acct-input" id="famNewPw2" type="password" autocomplete="new-password" placeholder="再输一遍">
+      <button class="acct-save" id="famPwSave">保存新密码</button>
+      <div class="acct-msg" id="famPwMsg"></div>
+
+      <button class="acct-save acct-logout" id="famLogout">退出登录</button>
+    </div>
+
+    <div class="account-body" id="famTabSettings" hidden>
+      <h3 class="acct-sub">资料</h3>
+      <div class="modal-acts" style="justify-content:flex-start">
+        <button class="mini" id="famEditPersona">修改基本信息</button>
+        <button class="mini danger" id="famResetAll">重置数据</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 给时间轴卡片 / 地图浮窗加照片：一个共用的隐藏文件选择器 -->
+<input type="file" id="photoInput" accept="image/*" multiple hidden>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const api = async (u, opt = {}) => {
+  // 加超时：服务正好在重启时，页面会一直转圈，不如明确报错
+  const ctl = new AbortController();
+  const ms = opt.timeout || 20000;
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(u, { ...opt, signal: ctl.signal });
+    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('请先登录'); }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? ('超时（' + ms + ' 毫秒没响应）') : e.message);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+let DATA = null;
+let personaAsked = false;   // 基本信息没填时只自动弹一次
+
+/** 出错就写在页面上，绝不白屏 */
+function showError(where, e) {
+  const box = document.getElementById('errBox');
+  if (!box) return;
+  box.hidden = false;
+  box.innerHTML = '<b>' + esc(where) + '出错</b>：' + esc(e && e.message ? e.message : String(e))
+    + '　<button class="mini primary" id="btnRetryAll">重新载入</button>'
+    + '<br><span style="font-size:12px">页面其它部分仍然可用。若服务刚重启，点"重新载入"即可。</span>';
+  const btn = document.getElementById('btnRetryAll');
+  if (btn) btn.onclick = () => { box.hidden = true; load(); };
+  console.error(where, e);
+}
+
+/** 每一步单独兜底：一个坏了不影响别的 */
+function safe(label, fn) {
+  try { return fn(); } catch (e) { showError(label, e); return null; }
+}
+
+async function load() {
+  FOOT = null;             // 数据变了：地图上的地点、合并叙述都要重取
+  try {
+    DATA = await api('/api/family');
+  } catch (e) {
+    showError('读取数据', e);
+    DATA = { preview: false, stats: {}, sentences: [], archive: { summary: {}, timeline: [] }, graph: { nodes: [], links: [] } };
+  }
+  try {
+    const p = DATA.persona || {};
+    PERSONA = p;
+    const basicMissing = !String(p.elder_call || '').trim()
+      || !String(p.birth_year || '').trim()
+      || !String(p.hometown || '').trim();
+    $('#subtitle').textContent = [
+      String(p.elder_call || '').trim(),
+      p.birth_year ? p.birth_year + ' 年生' : '',
+      String(p.hometown || '').trim(),
+    ].filter(Boolean).join(' · ') || '未填写';
+
+    $('#banner').hidden = true;
+    if (basicMissing) {
+      /* 称呼/出生年份/老家缺了 —— 直接弹出来让人填。
+         没有这几项，岁语不知道该管他叫什么、年份也算不出来、地图也没处落。
+         但只在**页面刚打开时**弹一次，别每次刷新数据都蹦出来打断人。 */
+      $('#banner').hidden = false;
+      $('#banner').innerHTML = '请先填写称呼、出生年份和老家。';
+      if (!personaAsked) { personaAsked = true; openPersona(); }
+    } else if ((DATA.stats || {}).sentences === 0) {
+      $('#banner').hidden = false;
+      $('#banner').innerHTML = '暂无记忆记录。';
+    }
+  } catch (e) { showError('显示标题', e); }
+
+  DATA.sentences = DATA.sentences || (DATA.archive && DATA.archive.sentences) || [];
+  const dbInfo = $('#dbFileInfo');
+  if (dbInfo) {
+    const st = DATA.stats || {};
+    dbInfo.textContent = '数据库文件：' + (st.dbFile || '—') + (st.sentences != null ? `　共 ${st.sentences} 条记忆` : '');
+  }
+  safe('统计卡片', renderCards);
+  safe('陪伴守望', renderWatch);
+  safe('时间轴', renderTimeline);
+  maybeNarrate();          // 有段还没合并成一句话 → 后台补，补完自动重画
+  safe('四个维度', renderDims);
+  safe('主句库', () => renderLibrary(DATA.sentences));
+  safe('人物图谱', renderGraph);
+  // 地图不在这里主动画（拖慢首页）；但已经开着的话，数据变了就得跟着刷新
+  const pm = document.getElementById('p-map');
+  if (pm && !pm.hidden) afterLayout(() => safe('足迹地图', renderMap));
+}
+
+function renderCards() {
+  const st = DATA.stats || {};
+  // 不再有"已确认 / 待核对"两档了（核对流程砍掉，进库就是正式档案），
+  // 所以只报一个"记忆条数" —— 不然两个数字永远一模一样，看着奇怪。
+  const items = [['记忆条数', st.sentences], ['人物', st.persons], ['地点', st.places], ['时间', st.times], ['事件', st.events], ['原话留档', st.utterances]];
+  $('#cards').innerHTML = items.map(([k, v]) => `<div class="card"><b>${v ?? 0}</b><span>${k}</span></div>`).join('');
+}
+
+/** 陪伴守望：老人今天心情怎么样、多久没说话了 */
+function renderWatch() {
+  const w = DATA.watch;
+  const box = $('#watch');
+  if (!w || !box) { if (box) box.hidden = true; return; }
+
+  const mood = w.lastMood;
+  const MOOD_CN = { low: '难过', uneasy: '看着不太对劲', normal: '正常', happy: '心情不错' };
+  const moodTxt = mood
+    ? `${MOOD_CN[mood.level] || mood.level}${
+      mood.note ? `，${esc(mood.note)}` : ''}（${
+      mood.source === 'camera' ? '摄像头看出来的' : mood.source === 'text' ? '从聊天里听出来的' : '手动记的'}）`
+    : '暂无数据';
+
+  // 只在"值得家人留意"时才显示这条，平时不打扰
+  const idleTooLong = w.silentMinutes >= 120;
+  // "不太对劲"（生气/烦躁/害怕占压倒性）也算值得留意 —— 他未必是难过，但情绪确实不在平常状态
+  const lowRecent = mood && (mood.level === 'low' || mood.level === 'uneasy');
+  if (!idleTooLong && !lowRecent) { box.hidden = true; return; }
+
+  const parts = [];
+  if (lowRecent) {
+    const what = mood.level === 'uneasy' ? '老人最近看着不太对劲' : '老人最近情绪看着有点低';
+    parts.push(`<b>${what}</b> —— ${moodTxt}${mood.source === 'camera' ? '，岁语已经过去陪他了' : ''}`);
+  }
+  if (idleTooLong) parts.push(`已经 <b>${Math.floor(w.silentMinutes / 60)} 小时 ${w.silentMinutes % 60} 分钟</b>没说话`);
+  box.innerHTML = `${parts.join('；')}。${w.cameraOn ? '<span class="muted">（摄像头情绪识别开着）</span>' : ''}`;
+  box.hidden = false;
+}
+
+/* 照片条：时间轴卡片和地图浮窗共用。
+   照片挂在"那条记忆"上，所以不管分组怎么合并，图片都跟着走。 */
+function photoStrip(photos, anchorId, { big = false } = {}) {
+  const cells = (photos || []).map((ph) => `<span class="photo-cell">
+      <a href="${esc(ph.url)}" target="_blank" rel="noreferrer"><img src="${esc(ph.url)}" alt="${esc(ph.caption || '照片')}" loading="lazy"></a>
+      <button class="photo-del" data-photo-del="${esc(ph.id)}" title="删除这张照片">×</button>
+    </span>`).join('');
+  const add = anchorId
+    ? `<button class="photo-add" data-photo-add="${esc(anchorId)}" title="给这件事加照片">＋ 照片</button>`
+    : '';
+  if (!cells && !add) return '';
+  return `<div class="photo-strip${big ? ' big' : ''}">${cells}${add}</div>`;
+}
+
+function renderTimeline() {
+  const tl = DATA.preview ? DATA.timeline : ((DATA.archive || {}).timeline || []);
+  if (!tl.length) { $('#timeline').innerHTML = '<p class="empty">暂无记录</p>'; return; }
+  $('#timeline').innerHTML = tl.map((g, i) => {
+    /* 有确切年份 → 年份做大、实心圆点；
+       没有确切年份（"中年时期""杭州开餐馆那几年""约 1978 年"）→ 小一号、灰一点、
+       虚线圆点。位置是按上下文推算出来的，别让它看着像一个确定的年份。
+       轴在中间，卡片左右交替（i % 2）—— 窄屏 CSS 会自动收回左边单列。 */
+    const y = g.estimated ? null : /^(\d{4})\s*年$/.exec(g.label);
+    const when = y
+      ? `<b>${esc(y[1])}</b><i>年</i>`
+      : `<b class="loose">${esc(g.label)}</b>`;
+    const side = i % 2 === 0 ? 'left' : 'right';
+    /* 同一件事散成好几条时，上面给一句合成的（g.note），下面逐条折叠着看 */
+    const body = g.note
+      ? `<p class="tl-note">${esc(g.note)}</p>
+         <details class="tl-more"><summary>${g.items.length} 条原话</summary>
+           <ul class="tl-items">${g.items.map((it) => `<li${it.raw && it.raw !== it.statement ? ` title="原话：${esc(it.raw)}"` : ''}>${esc(it.statement)}</li>`).join('')}</ul>
+         </details>`
+      : `<ul class="tl-items">${g.items.map((it) => `<li${it.raw && it.raw !== it.statement ? ` title="原话：${esc(it.raw)}"` : ''}>${esc(it.statement)}</li>`).join('')}</ul>`;
+    /* 这张卡的事件照片；加照片默认挂到组里第一条记忆上 */
+    const photos = photoStrip(g.photos, g.items[0] && g.items[0].id);
+    return `<div class="tl-node ${side}${y ? '' : ' approx'}">
+      <span class="tl-dot"></span>
+      <div class="tl-card">
+        <div class="tl-when">${when}<span class="tl-n">${g.items.length} 条</span></div>
+        ${body}
+        ${photos}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ==================================================================
+   记忆库
+   ------------------------------------------------------------------
+   以前是三个页签：
+     四个维度 —— 同一批记忆，按人/时间/地点/事件分组
+     主句库   —— 同一批记忆，一张表
+     数据库   —— 同一批记忆的原始行
+   三块看的是同一样东西，分成三个页签来回切很累。
+   现在合成一个面板：上面搜、中间按维度分组、下面折叠的原始数据。
+   ================================================================== */
+let grouping = '';        // '' | person | time | place | event
+
+/** 切到记忆库时调用 */
+function renderMemories() {
+  renderGroupBar();
+  if (!($('#libTable').innerHTML || '').trim()) renderLibrary((DATA || {}).sentences || []);
+}
+
+/* 缺「合并叙述」（同一个时间段 / 同一个地点里几条记忆还没合成一句话）→ 后台补一次。
+   不 await：页面先按逐条显示，补齐后自动换成一句话。
+   时间轴和地图浮窗用的是同一套缓存，所以两边的"待合并"一起看、一次补完。 */
+let narrating = false;
+let lastNarrateTry = '';   // 上次没补成时问的是哪几段 —— 一样就不再问，免得模型没配时反复重试
+async function maybeNarrate() {
+  if (narrating || !DATA) return;
+  const tlNeed = ((DATA.archive || {}).timeline || []).filter((g) => g.needNote).map((g) => g.key);
+  const mapNeed = ((FOOT && FOOT.places) || []).filter((p) => p.located && p.needNote).map((p) => p.key);
+  const pending = [...tlNeed, ...mapNeed].filter(Boolean);
+  if (!pending.length) return;
+  const sig = pending.slice().sort().join('\n');
+  if (sig === lastNarrateTry) return;
+  lastNarrateTry = sig;
+  narrating = true;
+  try {
+    const r = await fetch('/api/timeline/narrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then((x) => x.json());
+    if (!r || !r.changed) return;   // 模型没配 / 没判出来：保持逐条显示，别白重画
+    FOOT = null;                    // 新叙述进库了，地图数据也要重取
+    await load();                   // 重新拉一遍：时间轴、地图浮窗都跟着变
+  } catch { /* 失败就逐条显示，也能看 */ } finally {
+    narrating = false;
+  }
+}
+
+/** 分组按钮那一排 */
+function renderGroupBar() {
+  document.querySelectorAll('#groupBar button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.group === grouping);
+  });
+  const box = $('#groupChips');
+  if (!grouping) { box.innerHTML = ''; return; }
+  renderDims();
+}
+
+/** 在客户端把一条记忆对到某个维度值上 */
+function matchDim(s, dim, name) {
+  const eq = (a, b) => a === b || String(a).includes(String(b)) || String(b).includes(String(a));
+  if (dim === 'person') return (s.persons || []).some((x) => eq(x, name));
+  if (dim === 'place') return (s.places || []).some((x) => eq(x, name));
+  if (dim === 'event') return (s.events || []).some((x) => eq(x, name));
+  if (dim === 'time') {
+    if (s.year && String(name).includes(String(s.year))) return true;
+    return eq(s.time_label || '', name);
+  }
+  return false;
+}
+
+/** 只画**当前选中的那个维度**的条目（不再四个挤在一起） */
+function renderDims() {
+  const dims = DATA.preview ? DATA.dimensions : ((DATA.archive || {}).summary || {});
+  const d = dims[grouping] || { label: grouping, items: [] };
+  const box = $('#groupChips');
+  if (!(d.items || []).length) {
+    box.innerHTML = `<p class="muted" style="margin:6px 0">按${esc(label(grouping))}分组：暂无条目</p>`;
+    return;
+  }
+  box.innerHTML = `<div class="dim"><h4>${esc(d.label)}</h4>` + d.items.map((it) => {
+    const name = grouping === 'time' ? (it.label || it.raw) : it.name;
+    const extra = (grouping === 'person' && it.aliases && it.aliases.length > 1)
+      ? '（' + it.aliases.filter((a) => a !== it.name).join('/') + '）' : '';
+    return `<button class="chip" data-id="${it.id}" data-name="${esc(name)}">${esc(name)}${esc(extra)}<span class="n">${it.memories ?? 0}</span></button>`;
+  }).join('') + '</div>';
+  document.querySelectorAll('#groupChips .chip').forEach((c) => {
+    c.onclick = () => showDim(grouping, c.dataset.id, c.dataset.name, c);
+  });
+}
+
+/** 点维度里的某个条目 → 直接把下面的表筛成相关的那些 */
+function showDim(dim, id, name, btn) {
+  document.querySelectorAll('#groupChips .chip').forEach((c) => c.classList.toggle('on', c === btn));
+  const hit = (DATA.sentences || []).filter((s) => matchDim(s, dim, name));
+  renderLibrary(hit, `<p class="muted">按${esc(label(dim))}「${esc(name)}」筛出 ${hit.length} 条　<button id="btnClear" style="padding:2px 10px;font-size:13px">看全部</button></p>`);
+  const clear = $('#btnClear');
+  if (clear) clear.onclick = () => { document.querySelectorAll('#groupChips .chip').forEach((c) => c.classList.remove('on')); renderLibrary(DATA.sentences || []); };
+}
+const label = (d) => ({ person: '人物', time: '时间', place: '地点', event: '事件' }[d] || d);
+
+function card(title, list, item) {
+  const head = item ? `<div class="muted" style="font-size:13px">${item.aliases && item.aliases.length > 1 ? '别名：' + esc(item.aliases.join('、')) + '　' : ''}${item.basis ? esc(item.basis) : ''}</div>` : '';
+  if (!list.length) return `<h3 style="font-size:16px">${title}</h3>${head}<p class="empty">没有相关记忆。</p>`;
+  return `<h3 style="font-size:16px">${title} <span class="muted" style="font-size:13px;font-weight:400">共 ${list.length} 条</span></h3>${head}
+    <ul>${list.map((s) => `<li>${esc(s.statement)}</li>`).join('')}</ul>`;
+}
+
+function renderLibrary(items, info) {
+  $('#searchInfo').innerHTML = info || '';
+  $('#libTable').innerHTML = items.length
+    ? `<thead><tr><th>#</th><th>记忆内容</th><th>常见问法</th><th>时间</th><th>人物 · 地点 · 事件</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${items.map((s) => `<tr>
+        <td>${s.seq ?? ''}</td>
+        <td class="main">${esc(s.statement)}</td>
+        <td class="ask">${esc((s.asks || []).slice(0, 2).join('；'))}</td>
+        <td>${esc(s.time_label || (s.year ? s.year + ' 年' : '—'))}</td>
+        <td>${[...(s.persons || []), ...(s.places || []), ...(s.events || [])].map((x) => `<span class="pill">${esc(x)}</span>`).join('') || '—'}</td>
+        <td><span class="pill green">已记下</span>
+          <div class="muted" style="font-size:12px">置信度 ${s.confidence}　被询问 ${s.asked_count ?? 0} 次</div></td>
+        <td class="row-acts">
+          <button class="mini" data-edit-id="${esc(s.id)}" title="改内容 / 时间 / 人物 / 地点 / 事件">编辑</button>
+          <button class="mini danger" data-del-id="${esc(s.id)}" title="删掉这条记忆">删</button>
+        </td>
+      </tr>`).join('')}</tbody>`
+    : '<tbody><tr><td class="empty">暂无记录</td></tr></tbody>';
+
+  bindLibActions(items);
+}
+
+/** 记忆表格里每行的「编辑 / 删除」（主表和搜索结果共用） */
+function bindLibActions(items) {
+  document.querySelectorAll('#libTable [data-edit-id]').forEach((b) => {
+    b.onclick = () => {
+      const row = items.find((x) => String(x.id) === b.dataset.editId);
+      if (row) openTags(row);
+    };
+  });
+  document.querySelectorAll('#libTable [data-del-id]').forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.armed !== '1') {
+        b.dataset.armed = '1'; b.textContent = '真的删？';
+        setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 3000);
+        return;
+      }
+      await fetch('/api/sentences/' + encodeURIComponent(b.dataset.delId), { method: 'DELETE' });
+      await load();
+    };
+  });
+}
+
+/* ==================================================================
+   编辑一条记忆：内容 + 时间 / 人物 / 地点 / 事件
+   ------------------------------------------------------------------
+   以前这里只有"改标签"，改文字在下面的"原始数据"里另开一个弹窗 ——
+   同一行数据要改两处，看着就乱。现在合成一个编辑框：
+   内容、时间、人物、地点、事件一次改完。
+   ================================================================== */
+function splitTags(v) {
+  return String(v || '').split(/[,，、;；\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 8);
+}
+
+function openTags(row) {
+  $('#tgStatement').value = row.statement || '';
+  $('#tgTime').value = row.time_label || '';
+  $('#tgYear').value = row.year || '';
+  $('#tgPersons').value = (row.persons || []).join('，');
+  $('#tgPlaces').value = (row.places || []).join('，');
+  $('#tgEvents').value = (row.events || []).join('，');
+  $('#tagModal').dataset.id = row.id;
+  $('#tagModal').dataset.statement = row.statement || '';
+  $('#tagModal').hidden = false;
+  $('#tgStatement').focus();
+}
+function closeTags() { $('#tagModal').hidden = true; }
+
+$('#tgCancel').onclick = closeTags;
+$('#tagModal').onclick = (e) => { if (e.target === $('#tagModal')) closeTags(); };
+$('#tgSave').onclick = async () => {
+  const id = $('#tagModal').dataset.id;
+  const btn = $('#tgSave');
+  const statement = $('#tgStatement').value.trim();
+  if (!statement) { alert('记忆内容不能空着'); return; }
+  btn.disabled = true;
+  try {
+    /* 文字走"改一条记忆"的接口；标签走维度重挂的接口。
+       同一行、同一个弹窗，一次保存。 */
+    if (statement !== ($('#tagModal').dataset.statement || '')) {
+      const r1 = await fetch('/api/db/sentence/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statement }),
+      }).then((x) => x.json());
+      if (r1.error) throw new Error(r1.error);
+    }
+    const r = await fetch('/api/sentences/' + encodeURIComponent(id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        time_label: $('#tgTime').value.trim(),
+        year: $('#tgYear').value.trim() === '' ? null : Number($('#tgYear').value.trim()),
+        persons: splitTags($('#tgPersons').value),
+        places: splitTags($('#tgPlaces').value),
+        events: splitTags($('#tgEvents').value),
+      }),
+    }).then((x) => x.json());
+    if (r.error) throw new Error(r.error);
+    closeTags();
+    await load();            // 重新拉：时间轴/地图/维度都跟着变
+  } catch (e) {
+    showError('保存记忆', e);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('#btnSearch').onclick = async () => {
+  const q = $('#q').value.trim();
+  if (!q) return;
+  if (DATA.preview) {
+    const hit = (DATA.sentences || []).filter((s) => s.statement.includes(q));
+    renderLibrary(hit, `<p class="muted">示例数据里搜「${esc(q)}」命中 ${hit.length} 条</p>`);
+    return;
+  }
+  const r = await api('/api/search?q=' + encodeURIComponent(q));
+  $('#searchInfo').innerHTML = `<p class="muted">「${esc(q)}」命中 ${r.hits.length} 条（按相关度排）</p>`;
+  const allRows = DATA.sentences || [];
+  const hitRows = r.hits.map((h) => ({ ...h, ...(allRows.find((x) => x.id === h.id) || {}) }));
+  $('#libTable').innerHTML = r.hits.length
+    ? `<thead><tr><th>#</th><th>命中的主句</th><th>问法</th><th>相关度</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${r.hits.map((h) => `<tr><td>${h.seq}</td><td class="main">${esc(h.statement)}</td>
+        <td class="ask">${esc((h.asks || [])[0] || '')}</td>
+        <td>${h.score}<div class="muted" style="font-size:12px">字面 ${h.why.overlap} · 类别 ${h.why.kinds} · 称呼 ${h.why.name ?? 0}</div></td>
+        <td><span class="pill green">已记下</span></td>
+        <td class="row-acts">
+          <button class="mini" data-edit-id="${esc(h.id)}">编辑</button>
+          <button class="mini danger" data-del-id="${esc(h.id)}">删</button>
+        </td></tr>`).join('')}</tbody>`
+    : `<tbody><tr><td class="empty">主句库里没有相关的内容。分析结果：人物 ${r.heard.persons.join('、') || '—'}｜地点 ${r.heard.places.join('、') || '—'}｜事件 ${r.heard.events.join('、') || '—'}</td></tr></tbody>`;
+  bindLibActions(hitRows);
+};
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btnSearch').click(); });
+document.querySelectorAll('#groupBar button').forEach((b) => {
+  b.onclick = () => {
+    grouping = b.dataset.group || '';
+    renderGroupBar();
+    renderLibrary(DATA.sentences || []);        // 换分组时把表恢复成全部
+  };
+});
+$('#btnAll').onclick = () => { $('#q').value = ''; renderLibrary(DATA.sentences || []); };
+$('#btnCsv').onclick = () => {
+  const rows = [['编号', '主句', '疑问形式', '时间', '状态']].concat((DATA.sentences || []).map((s) => [s.seq, s.statement, (s.asks || []).join(' / '), s.time_label || s.year || '', s.status]));
+  const csv = '\uFEFF' + rows.map((r) => r.map((c) => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = '岁语记忆档案.csv';
+  a.click();
+};
+
+function renderGraph() {
+  const g = DATA.graph || { nodes: [], links: [] };
+  const host = $('#graph');
+  const nodes = g.nodes || [];
+  if (!nodes.length) {
+    host.innerHTML = '<div class="empty">暂无数据</div>';
+    $('#graphNote').textContent = '';
+    $('#graphDetail').innerHTML = '';
+    return;
+  }
+  const selfId = g.selfId || '__self__';
+  const selfNode = nodes.find((n) => n.id === selfId);
+  const others = nodes.filter((n) => n.id !== selfId);
+  const linked = new Set();
+  for (const l of g.links) { linked.add(l.source); linked.add(l.target); }
+  $('#graphNote').textContent = `他 + ${others.length} 个人 · ${g.links.length} 条关系`;
+
+  // 量容器宽度：面板还隐藏、或布局没算完时都会是 0，这时画出来就是空的
+  let W = host.clientWidth || host.offsetWidth || 0;
+  if (W < 200) {
+    host.style.minHeight = '460px';
+    if (!host.dataset.retried) {
+      host.dataset.retried = '1';
+      host.innerHTML = '<p class="empty">正在计算地图尺寸……</p>';
+      afterLayout(() => safe('足迹地图', renderMap));
+      return;
+    }
+    W = Math.max((host.parentElement && host.parentElement.clientWidth) || 0, 900);
+  }
+  host.dataset.retried = '';
+  const H = Math.max(320, Math.min(560, 150 + nodes.length * 46));
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = Math.min(W / 2 - 110, H / 2 - 60);
+  const pos = new Map();
+  // 自己放正中间；提到过的人围着排（不按"有没有关系"分内外圈了）
+  if (selfNode) pos.set(selfId, [cx, cy]);
+  const ring = others.length;
+  others.forEach((n, i) => {
+    const a = (i / Math.max(1, ring)) * Math.PI * 2 - Math.PI / 2;
+    pos.set(n.id, [cx + Math.cos(a) * R, cy + Math.sin(a) * R * 0.9]);
+  });
+
+  const svg = ['<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '">'];
+  for (const l of g.links) {
+    const a = pos.get(l.source);
+    const b = pos.get(l.target);
+    if (!a || !b) continue;
+    const toSelf = l.source === selfId || l.target === selfId;
+    // 颜色不能太浅，否则在米色背景上根本看不见
+    svg.push('<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="' + (toSelf ? '#c0a882' : '#a8875a') + '" stroke-width="' + (toSelf ? 1.8 : 2.2 + Math.min(l.weight || 1, 3) * 1.1) + '" stroke-linecap="round"/>');
+  }
+  for (const n of nodes) {
+    const p = pos.get(n.id);
+    const isSelf = n.id === selfId;
+    if (!p) continue;
+    const r = isSelf ? 40 : Math.max(18, Math.min(30, 14 + (n.memories || 1) * 3));
+    const fill = isSelf ? '#3c3630' : '#b4531f';
+    svg.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + r + '" fill="' + fill + '" opacity=".95"/>');
+    const label = isSelf ? '我' : esc(n.name).slice(0, 4);
+    svg.push('<text x="' + p[0] + '" y="' + (p[1] + 6) + '" text-anchor="middle" font-size="' + (isSelf ? 20 : 14) + '" fill="#fff" font-weight="700">' + label + '</text>');
+    const al = (n.aliases || []).filter((x) => x !== n.name);
+    const tip = isSelf
+      ? (n.name && n.name !== '我' ? n.name + ' · ' + (n.memories || 0) + ' 条记忆' : (n.memories || 0) + ' 条记忆')
+      : [al.length ? '别名 ' + al.join('/') : '', n.memories ? n.memories + ' 条记忆' : ''].filter(Boolean).join(' · ');
+    if (tip) svg.push('<text x="' + p[0] + '" y="' + (p[1] + r + 16) + '" text-anchor="middle" font-size="11" fill="#6d6559">' + esc(tip) + '</text>');
+  }
+  svg.push('</svg>');
+  host.innerHTML = svg.join('');
+
+  // 人物明细
+  const solo = g.solo || {};
+  $('#graphDetail').innerHTML = nodes.map((n) => {
+    const list = solo[n.id] || [];
+    if (!list.length) return '';
+    const al = (n.aliases || []).filter((x) => x !== n.name);
+    return `<div class="dbrow"><div class="dbrow-head">
+        <b>${esc(n.name)}</b>${al.length ? '<span class="muted" style="font-size:12px">（' + esc(al.join('/')) + '）</span>' : ''}
+        <span class="muted" style="font-size:12px">${list.length} 条记忆</span></div>
+      <ul style="margin:4px 0 0;padding-left:20px">${list.map((r) => '<li>' + esc(r.statement) + (r.year ? ' <span class="pill gray">' + r.year + '</span>' : '') + '</li>').join('')}</ul>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- 足迹地图：中国地图 + 按顺序插旗 ---------- */
+let MAP = null;      // { geojson, bbox }
+let FOOT = null;     // 足迹数据
+let mapTimer = null; // 顺序插旗的定时器
+
+/** 只画底图：每省一条 path（34 条，不是 800 多条），顺便标上省名 */
+function drawBase(W, H, bbox, P, geojson) {
+  const isPoint = (x) => Array.isArray(x) && typeof x[0] === 'number';
+  const paths = [];
+  const labels = [];
+  for (const f of (geojson.features || [])) {
+    const name = f.properties?.name || '';
+    let d = '';
+    let sx = 0; let sy = 0; let n = 0;
+    const walk = (node) => {
+      if (!Array.isArray(node) || !node.length) return;
+      if (isPoint(node[0])) {
+        if (node.length < 3) return;
+        const head = P(node[0][0], node[0][1]);
+        d += 'M' + head[0].toFixed(1) + ' ' + head[1].toFixed(1);
+        for (let i = 1; i < node.length; i += 1) {
+          const q = P(node[i][0], node[i][1]);
+          d += 'L' + q[0].toFixed(1) + ' ' + q[1].toFixed(1);
+          sx += q[0]; sy += q[1]; n += 1;
+        }
+        d += 'Z';
+        return;
+      }
+      for (const c of node) walk(c);
+    };
+    walk((f.geometry || {}).coordinates);
+    if (d) paths.push('<path d="' + d + '" fill="#eef4f1" stroke="#cbdad4" stroke-width="0.9"/>');
+    if (n > 0) labels.push({ name, x: sx / n, y: sy / n });
+  }
+  const names = labels
+    .filter((l) => l.name && l.name.length <= 4)
+    .map((l) => '<text x="' + l.x.toFixed(1) + '" y="' + l.y.toFixed(1) + '" text-anchor="middle" font-size="10" fill="#9fb3ac">' + esc(l.name) + '</text>')
+    .join('');
+  return paths.join('') + names;
+}
+
+/** 画一面旗 —— 地图上只留旗子和序号，文字都收进点击浮窗 */
+function drawFlag(p, P) {
+  const q = P(p.lng, p.lat);
+  const color = p.approx ? '#c08a2e' : '#b4531f';
+  const pole = 30;
+  return '<g class="flag" data-i="' + p.order + '" style="cursor:pointer">'
+    // 点击热区：透明大圆，手指也好点
+    + '<circle cx="' + q[0] + '" cy="' + (q[1] - pole / 2) + '" r="18" fill="transparent"/>'
+    + '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[0] + '" y2="' + (q[1] - pole) + '" stroke="#6d6559" stroke-width="1.6"/>'
+    + '<path d="M' + q[0] + ' ' + (q[1] - pole) + ' L' + (q[0] + 24) + ' ' + (q[1] - pole + 7) + ' L' + q[0] + ' ' + (q[1] - pole + 14) + ' Z" fill="' + color + '" opacity=".95"/>'
+    + '<text x="' + (q[0] + 9) + '" y="' + (q[1] - pole + 10) + '" font-size="10" fill="#fff" font-weight="700" text-anchor="middle">' + p.order + '</text>'
+    + '<circle cx="' + q[0] + '" cy="' + q[1] + '" r="3.4" fill="' + color + '"/>'
+    + '</g>';
+}
+
+/**
+ * 地图包围盒。
+ * 服务端给的原始范围是 3.84°N ~ 53.56°N —— 里面包含南海诸岛，
+ * 它们把纬度跨度撑大 26%，结果是大陆被挤到画面上半部、下面一大片空白。
+ * 标准中国地图会把南海做成小图嵌在角落；这里老人的人生轨迹用不到三沙，
+ * 所以直接把包围盒收到大陆范围（17°N 以上，海南仍在范围内）。
+ */
+function mapBbox() {
+  const b = MAP.bbox || [73.5, 18, 135, 53.6];
+  return [b[0], Math.max(b[1], 17), b[2], Math.min(b[3], 54)];
+}
+
+async function renderMap() {
+  const host = $('#chinaMap');
+  if (!FOOT) FOOT = await api('/api/footprints');
+  if (!MAP) {
+    host.innerHTML = '<p class="empty">载入地图中……（第一次要下载约 340 KB 地图数据）</p>';
+    try {
+      MAP = await api('/api/map/china');
+    } catch (e) {
+      host.innerHTML = '<p class="empty">地图数据没拿到：' + esc(e.message) + '　<button class="mini" id="btnRetryMap">重试</button></p>';
+      const btn = document.getElementById('btnRetryMap');
+      if (btn) btn.onclick = () => { MAP = null; safe('足迹地图', renderMap); };
+      return;
+    }
+    if (!MAP || !MAP.geojson || !MAP.geojson.features || !MAP.geojson.features.length) {
+      host.innerHTML = '<p class="empty">地图数据是空的（public/map/china.json 可能没生成）</p>';
+      return;
+    }
+  }
+  const W = host.clientWidth || 900;
+  const H = Math.round(Math.min(720, Math.max(460, W * 0.62)));
+  const bbox = mapBbox();
+  const merc = (y) => Math.log(Math.tan(Math.PI / 4 + (y * Math.PI) / 360));
+  // 墨卡托的数值"越大越靠北"：merc(53.56°)=1.111 > merc(4.95°)=0.086。
+  // 所以屏幕 y 要用 (北 - 当前) 来算，北边算出小 y、南边算出大 y。
+  // 之前写成 (当前 - 南)，高度成了负数，整张图被画到画布外面（只剩几条横线）。
+  const x0 = bbox[0]; const x1 = bbox[2];
+  const yN = merc(bbox[3]);      // 北
+  const yS = merc(bbox[1]);      // 南
+  const pad = 12;
+  // 经度是"度"、纬度经墨卡托后是对数单位，量纲不同：
+  // 要把经度换成弧度再乘以 2π，才和墨卡托的纵向单位同量纲，比例才是对的。
+  // （之前直接拿 宽/经度跨度 和 高/纬度跨度 取 min，比例被宽度主导，
+  //   垂直方向只用了十几像素，整张图被压成一条横线。）
+  const xW = (x1 - x0) * Math.PI / 180;      // 横向跨度（墨卡托单位）
+  const yH = yN - yS;                        // 纵向跨度（墨卡托单位）
+  const sc = Math.min((W - pad * 2) / xW, (H - pad * 2) / yH);
+  const ox = pad + ((W - pad * 2) - xW * sc) / 2;
+  const oy = pad + ((H - pad * 2) - yH * sc) / 2;
+  const P = (lng, lat) => [ox + ((lng - x0) * Math.PI / 180) * sc, oy + (yN - merc(lat)) * sc];
+
+  const base = drawBase(W, H, bbox, P, MAP.geojson);
+  host.innerHTML = '<svg id="mapSvg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto;background:#f4f8f7;border-radius:14px">'
+    + '<g id="mapBase">' + base + '</g><g id="mapFlags"></g></svg>';
+
+  const pts = (FOOT.places || []).filter((p) => p.located);
+  $('#mapNote').textContent = pts.length + ' 个地方 · 点旗帜看内容';
+
+  replayFlags();
+  bindFlagClicks();
+  /* 叙述是后台补的：补完会重画地图，正开着的浮窗也跟着换成带那句话的版本 */
+  if (openPlaceId) {
+    const open = pts.find((p) => p.id === openPlaceId);
+    if (open) showPlace(open); else hidePlace();
+  }
+  maybeNarrate();     // 这面旗下的几条记忆还没合成一句话 → 后台补，补好重画
+}
+
+/** 点旗帜 → 弹出浮窗看这个地方的往事 */
+function bindFlagClicks() {
+  const svg = document.getElementById('mapSvg');
+  if (!svg) return;
+  svg.querySelectorAll('g.flag').forEach((g) => {
+    g.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const i = Number(g.dataset.i);
+      const p = (FOOT.places || []).find((x) => x.order === i);
+      if (p) showPlace(p);
+    });
+  });
+}
+
+/** 地点浮窗（点地图空白处、或者点关闭就收起来） */
+let openPlaceId = '';   // 开着的是哪个地点 —— 合并叙述补上后原样刷新它
+function showPlace(p) {
+  hidePlace();
+  openPlaceId = p.id || '';
+  const d = document.createElement('div');
+  d.className = 'place-pop';
+  d.id = 'placePop';
+  /* 几条记忆可能挂在同一个地方（城市 + 具体地点），会重复 —— 去个重。 */
+  const seen = new Set();
+  const list = (p.memories || []).filter((m) => {
+    const t = String(m.statement || '').trim();
+    if (!t || seen.has(t)) return false;
+    seen.add(t);
+    return true;
+  });
+  const items = list.map((m) => `<li>${esc(m.statement)}</li>`).join('');
+  /* 浮窗只放整理过的那一句，原话不再展开 —— 家里人看的是"发生了什么"，
+     不是三条同义句。还没合并出句子时先逐条兜底，不然点开是空的。 */
+  const body = p.note
+    ? `<p class="place-pop-note">${esc(p.note)}</p>`
+    : `<ul>${items || '<li class="muted">暂无记录</li>'}</ul>`;
+  /* 年份那行去掉了（1988 年这种跟正文容易对不上、也帮不上什么忙）；
+     具体小地名（剪子巷、国棉三厂…）还留着，用来分清是哪一处。 */
+  const spurs = (p.spurs || []).map((sp) => sp && sp.name).filter(Boolean);
+  const meta = spurs.length ? `<div class="place-pop-meta">${esc(spurs.join('、'))}</div>` : '';
+  /* 这个地点的照片；加照片默认挂到第一条记忆上（照片跟记忆走，时间轴也会出现） */
+  const anchor = (p.memories || []).find((m) => m && m.id)?.id || '';
+  d.innerHTML = `<button class="place-pop-x" title="关闭">×</button>
+    <h3>${esc(p.label)}</h3>
+    ${meta}
+    ${body}
+    ${photoStrip(p.photos, anchor, { big: true })}`;
+  document.body.appendChild(d);
+  d.querySelector('.place-pop-x').onclick = hidePlace;
+  /* 点浮窗里面（加照片、删照片）不算"点别处"，别让它先把自己关掉 */
+  d.addEventListener('pointerdown', (e) => e.stopPropagation());
+  // 点别处就收起来
+  setTimeout(() => document.addEventListener('pointerdown', hidePlace, { once: true }), 0);
+}
+
+function hidePlace() {
+  openPlaceId = '';
+  const old = document.getElementById('placePop');
+  if (old) old.remove();
+}
+
+/* ---------- 记忆配图：时间轴卡片 / 地图浮窗上都能加 ---------- */
+const PHOTO_MAX_SIDE = 1600;   // 缩到这个尺寸就够看了，老人手机传原图会慢
+let photoAnchor = '';          // 这次要加到哪条记忆上
+
+/** 选中的图片 → 等比缩小 → JPEG base64（原图十几兆也能传上来） */
+function photoToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type || '')) { reject(new Error('这不是图片')); return; }
+    if (file.size > 30 * 1024 * 1024) { reject(new Error('图片太大（最多 30MB）')); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读不了这个文件'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('图片打不开'));
+      img.onload = () => {
+        const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(img.width || 1, img.height || 1));
+        const w = Math.max(1, Math.round((img.width || 1) * scale));
+        const h = Math.max(1, Math.round((img.height || 1) * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/jpeg', 0.86));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadPhotos(files) {
+  const anchor = photoAnchor;
+  if (!anchor) return;
+  const list = [...(files || [])];
+  if (!list.length) return;
+  let ok = 0;
+  for (const f of list) {
+    try {
+      const dataUrl = await photoToDataUrl(f);
+      await api('/api/photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sentenceId: anchor, dataUrl }),
+        timeout: 60000,
+      });
+      ok += 1;
+    } catch (e) { showError('上传照片', e); }
+  }
+  if (ok) await load();   // 时间轴、地图、正开着的浮窗一起刷新
+}
+
+/* 加照片 / 删照片：事件委托，卡片重画多少次都不用重新绑 */
+document.addEventListener('click', (e) => {
+  const add = e.target.closest ? e.target.closest('[data-photo-add]') : null;
+  if (add) {
+    e.preventDefault(); e.stopPropagation();
+    photoAnchor = add.dataset.photoAdd || '';
+    const input = document.getElementById('photoInput');
+    if (!input) return;
+    input.value = '';
+    input.click();
+    return;
+  }
+  const del = e.target.closest ? e.target.closest('[data-photo-del]') : null;
+  if (del) {
+    e.preventDefault(); e.stopPropagation();
+    const id = del.dataset.photoDel || '';
+    if (!id || !window.confirm('删掉这张照片？')) return;
+    fetch('/api/photos/' + encodeURIComponent(id), { method: 'DELETE' })
+      .then((r) => r.json())
+      .then(() => load())
+      .catch((err) => showError('删照片', err));
+  }
+});
+const photoInputEl = document.getElementById('photoInput');
+if (photoInputEl) photoInputEl.addEventListener('change', () => uploadPhotos(photoInputEl.files));
+
+/** 把所有旗子一次画好 —— 不再一面一面"插"出来 */
+function replayFlags() {
+  if (mapTimer) { clearInterval(mapTimer); mapTimer = null; }
+  const box = document.getElementById('mapFlags');
+  if (!box) return;
+  const svg = document.getElementById('mapSvg');
+  const vb = (svg.getAttribute('viewBox') || '0 0 900 500').split(' ').map(Number);
+  const W = vb[2]; const H = vb[3];
+  const bbox = mapBbox();
+  const merc = (y) => Math.log(Math.tan(Math.PI / 4 + (y * Math.PI) / 360));
+  // 墨卡托的数值"越大越靠北"：merc(53.56°)=1.111 > merc(4.95°)=0.086。
+  // 所以屏幕 y 要用 (北 - 当前) 来算，北边算出小 y、南边算出大 y。
+  // 之前写成 (当前 - 南)，高度成了负数，整张图被画到画布外面（只剩几条横线）。
+  const x0 = bbox[0]; const x1 = bbox[2];
+  const yN = merc(bbox[3]);      // 北
+  const yS = merc(bbox[1]);      // 南
+  const pad = 12;
+  // 经度是"度"、纬度经墨卡托后是对数单位，量纲不同：
+  // 要把经度换成弧度再乘以 2π，才和墨卡托的纵向单位同量纲，比例才是对的。
+  // （之前直接拿 宽/经度跨度 和 高/纬度跨度 取 min，比例被宽度主导，
+  //   垂直方向只用了十几像素，整张图被压成一条横线。）
+  const xW = (x1 - x0) * Math.PI / 180;      // 横向跨度（墨卡托单位）
+  const yH = yN - yS;                        // 纵向跨度（墨卡托单位）
+  const sc = Math.min((W - pad * 2) / xW, (H - pad * 2) / yH);
+  const ox = pad + ((W - pad * 2) - xW * sc) / 2;
+  const oy = pad + ((H - pad * 2) - yH * sc) / 2;
+  const P = (lng, lat) => [ox + ((lng - x0) * Math.PI / 180) * sc, oy + (yN - merc(lat)) * sc];
+
+  const pts = (FOOT.places || []).filter((p) => p.located);
+  /* 一次全画出来 —— 不再一面一面"插"。插旗动画看着热闹，
+     但每次打开地图都要等好几秒，而且画完之前信息不完整。 */
+  box.innerHTML = pts.map((p) => drawFlag(p, P)).join('');
+  $('#mapProgress').textContent = pts.length ? pts.length + ' 个地方' : '暂无可定位的地点';
+  bindFlagClicks();
+}
+
+/* ---------- 吃药提醒（家人端设置；老人端负责提醒） ----------
+   老人端到点会弹卡片、念一遍，没确认就一直催。
+   这里只负责"设什么药、几点吃"，以及看今天哪几顿吃了没有。 */
+let MEDS = null;       // 最近一次 /api/meds
+let medEditing = '';   // 正在改的那个药 id（空 = 新增）
+
+const MED_STATE = {
+  done:  { text: '已吃过',       cls: 'green' },
+  due:   { text: '到点了，还没吃', cls: 'red' },
+  soon:  { text: '快到点了',      cls: 'gold' },
+  later: { text: '还没到',        cls: 'gray' },
+};
+
+async function renderMeds(refresh = false) {
+  if (refresh || !MEDS) {
+    try { MEDS = await api('/api/meds'); } catch (e) { showError('读吃药提醒', e); return; }
+  }
+  renderMedList();
+  renderMedToday();
+}
+
+function renderMedList() {
+  const box = $('#medList');
+  if (!box) return;
+  const meds = (MEDS && MEDS.meds) || [];
+  if (!meds.length) { box.innerHTML = '<p class="muted">还没设过，下面加第一个药。</p>'; return; }
+  box.innerHTML = meds.map((m) => `<div class="med-row">
+    <div class="med-row-main">
+      <b>${esc(m.name)}</b>${m.dose ? '　' + esc(m.dose) : ''}<br>
+      <span class="med-row-times">每天 ${esc((m.times || []).join('、'))}</span>
+      ${m.note ? `<br><span class="med-row-note">${esc(m.note)}</span>` : ''}
+    </div>
+    <div class="row-acts">
+      <button class="mini" data-med-edit="${esc(m.id)}">编辑</button>
+      <button class="mini danger" data-med-del="${esc(m.id)}">删</button>
+    </div>
+  </div>`).join('');
+
+  box.querySelectorAll('[data-med-edit]').forEach((b) => {
+    b.onclick = () => {
+      const m = meds.find((x) => x.id === b.dataset.medEdit);
+      if (!m) return;
+      medEditing = m.id;
+      $('#medName').value = m.name || '';
+      $('#medDose').value = m.dose || '';
+      $('#medTimes').value = (m.times || []).join(',');
+      $('#medNote').value = m.note || '';
+      $('#medAdd').textContent = '保存修改';
+      $('#medCancel').hidden = false;
+      $('#medName').focus();
+    };
+  });
+  box.querySelectorAll('[data-med-del]').forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.armed !== '1') {
+        b.dataset.armed = '1'; b.textContent = '真的删？';
+        setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 3000);
+        return;
+      }
+      const r = await api('/api/meds/' + encodeURIComponent(b.dataset.medDel), { method: 'DELETE' });
+      if (r && r.ok !== false) { MEDS = r; resetMedForm(); renderMedList(); renderMedToday(); }
+    };
+  });
+}
+
+function renderMedToday() {
+  const box = $('#medToday');
+  if (!box) return;
+  const items = (MEDS && MEDS.items) || [];
+  if (!items.length) { box.innerHTML = '<p class="muted">今天没有要吃的药。</p>'; return; }
+  box.innerHTML = items.map((it) => {
+    const st = MED_STATE[it.state] || { text: it.state, cls: 'gray' };
+    let extra = '';
+    if (it.state === 'due' && it.minutes > 0) extra = `（过了 ${it.minutes} 分钟）`;
+    if (it.state === 'soon') extra = `（还有 ${Math.max(1, -it.minutes)} 分钟）`;
+    return `<div class="med-today-row">
+      <span class="med-today-time">${esc(it.time)}</span>
+      <span class="med-today-name"><b>${esc(it.name)}</b>${it.dose ? '　' + esc(it.dose) : ''}${it.note ? `<span class="muted">　${esc(it.note)}</span>` : ''}</span>
+      <span class="pill ${st.cls}">${st.text}${extra}</span>
+      ${it.state === 'done' ? '' : `<button class="mini" data-med-done="${esc(it.medId)}" data-med-slot="${esc(it.slot)}">标记吃过</button>`}
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('[data-med-done]').forEach((b) => {
+    b.onclick = async () => {
+      const r = await api('/api/meds/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ medId: b.dataset.medDone, slot: b.dataset.medSlot }),
+      });
+      if (r && r.ok) { MEDS = r; renderMedToday(); }
+    };
+  });
+}
+
+function resetMedForm() {
+  medEditing = '';
+  for (const id of ['medName', 'medDose', 'medTimes', 'medNote']) $('#' + id).value = '';
+  $('#medAdd').textContent = '＋ 添加这个药';
+  $('#medCancel').hidden = true;
+  $('#medMsg').textContent = '';
+}
+
+$('#medAdd').onclick = async () => {
+  const name = $('#medName').value.trim();
+  const times = $('#medTimes').value.trim();
+  if (!name) { $('#medMsg').textContent = '先写药名'; return; }
+  if (!times) { $('#medMsg').textContent = '写一下每天几点吃，比如 08:00'; return; }
+  const body = { name, dose: $('#medDose').value.trim(), times, note: $('#medNote').value.trim() };
+  if (medEditing) body.id = medEditing;
+  const r = await api('/api/meds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r || r.ok === false) { $('#medMsg').textContent = (r && r.error) || '保存失败'; return; }
+  MEDS = r;
+  const wasEdit = Boolean(medEditing);
+  resetMedForm();
+  renderMedList();
+  renderMedToday();
+  $('#medMsg').textContent = `${wasEdit ? '已保存' : '已添加'}：${name}（每天 ${(r.med && r.med.times || []).join('、')}）`;
+};
+$('#medCancel').onclick = resetMedForm;
+
+/* ---------- 页签切换 ---------- */
+const TAB_IDS = ['timeline', 'memories', 'graph', 'map', 'meds', 'messages', 'daily'];
+/** 旧的页签名（以前分开的三个）→ 现在都归到"记忆库" */
+const LEGACY_TAB = { dims: 'memories', library: 'memories', db: 'memories' };
+/**
+ * 等浏览器把布局算完再执行。
+ * 面板刚从 hidden 变成显示时宽度还是 0，这会儿画图会画成一张空图。
+ */
+function afterLayout(fn) {
+  // setTimeout 与 requestAnimationFrame 赛跑，谁先到用谁。
+  // 只用 rAF 的话，标签页不在前台（或某些无头浏览器）时它不触发，地图会一直卡在"载入中"。
+  let done = false;
+  const once = () => { if (!done) { done = true; fn(); } };
+  setTimeout(once, 40);
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => requestAnimationFrame(once));
+  }
+}
+
+function showTab(name) {
+  for (const t of TAB_IDS) {
+    const panel = document.getElementById('p-' + t);
+    if (panel) panel.hidden = t !== name;
+  }
+  document.querySelectorAll('#tabs button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.tab === name);
+  });
+  if (name === 'graph') safe('人物图谱', renderGraph);
+  if (name === 'map') afterLayout(() => safe('足迹地图', renderMap));
+  if (name === 'memories') safe('记忆库', renderMemories);
+  if (name === 'meds') safe('吃药提醒', () => renderMeds(true));
+  if (name === 'messages') safe('家人消息', loadMessages);
+  if (name === 'daily') safe('今日总结', loadDaily);
+}
+
+/* ---------------- 家人远程：心情提醒 / 消息 / 今日总结 ---------------- */
+
+async function refreshMoodAlert() {
+  try {
+    const st = await api('/api/watch/state');
+    const m = st && st.lastMood;
+    const bad = m && (m.level === 'low' || m.level === 'uneasy');
+    const recent = bad && Date.now() - Number(m.at || 0) < 30 * 60 * 1000;
+    $('#moodAlert').hidden = !recent;
+    if (recent) {
+      const who = (PERSONA && PERSONA.elder_call) || '老人';
+      $('#moodAlertText').textContent = `${who}刚才的情绪读数是「${m.level === 'low' ? '低落' : '有点不安'}」，已经持续一会儿了。可以发条消息，或者打个电话过去。`;
+    }
+  } catch { /* 网络抖动就算了，下次再看 */ }
+}
+
+function fmtMsgTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+async function loadMessages() {
+  const box = $('#msgThread');
+  try {
+    const r = await api('/api/family/messages?limit=100');
+    const items = r.items || [];
+    if (!items.length) {
+      box.innerHTML = '<p class="muted">还没有消息。发一句「今天怎么样」，岁语会念给老人听。</p>';
+      return;
+    }
+    box.innerHTML = items.map((m) => {
+      if (m.kind === 'like') return `<div class="msg-row notice"><div class="msg-bubble">${esc(m.text)}<div class="msg-meta">${fmtMsgTime(m.created_at)}</div></div></div>`;
+      if (m.kind === 'summary_reply') return `<div class="msg-row notice"><div class="msg-bubble">回复今日总结：${esc(m.text)}<div class="msg-meta">${fmtMsgTime(m.created_at)}</div></div></div>`;
+      const mine = m.sender === 'family';
+      return `<div class="msg-row ${mine ? 'family' : 'elder'}"><div class="msg-bubble">${esc(m.text)}<div class="msg-meta">${mine ? '我' : '老人'} · ${fmtMsgTime(m.created_at)}</div></div></div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  } catch (e) {
+    box.innerHTML = `<p class="muted">消息加载失败：${esc(e.message)}</p>`;
+  }
+}
+
+async function sendMessage() {
+  const input = $('#msgInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const btn = $('#msgSend');
+  btn.disabled = true;
+  $('#msgStatus').textContent = '';
+  try {
+    const r = await fetch('/api/family/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    input.value = '';
+    $('#msgStatus').textContent = '发出去了，岁语会转告老人。';
+    await loadMessages();
+  } catch (e) {
+    $('#msgStatus').textContent = '没发出去：' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadDaily() {
+  const card = $('#dailyCard');
+  const day = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  $('#dailyDay').textContent = `${day} `;
+  try {
+    const r = await api('/api/daily?date=' + encodeURIComponent(day));
+    const s = r.summary || {};
+    const txt = typeof s.text === 'string' && s.text !== '[object Object]' ? s.text : '今天的总结还没生成好，请稍后刷新。';
+    card.textContent = txt;
+    $('#dailyStats').textContent = `${s.likes || 0} 个赞${s.reply ? ' · 已回复' : ''}`;
+    const like = $('#dailyLike');
+    if (s.liked) { like.textContent = '已点赞'; like.disabled = true; } else { like.textContent = '点赞'; like.disabled = false; }
+    if (s.reply) $('#dailyReply').value = s.reply;
+  } catch (e) {
+    card.textContent = '总结加载失败：' + e.message;
+  }
+}
+
+async function dailyFeedback(payload) {
+  const day = $('#dailyDay').textContent.slice(0, 10);
+  try {
+    const r = await fetch('/api/daily/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, day }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    $('#dailyStatus').textContent = payload.liked ? '赞已经带给岁语了。' : '回复已经带给岁语了。';
+    await loadDaily();
+  } catch (e) {
+    $('#dailyStatus').textContent = '操作失败：' + e.message;
+  }
+}
+
+$('#msgSend').onclick = sendMessage;
+$('#msgInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+$('#dailyLike').onclick = () => dailyFeedback({ liked: true });
+$('#dailyReplySend').onclick = () => {
+  const reply = $('#dailyReply').value.trim();
+  if (!reply) return;
+  dailyFeedback({ reply });
+};
+$('#dailyRefresh').onclick = () => loadDaily();
+
+function bindTabs() {
+  const btns = document.querySelectorAll('#tabs button');
+  btns.forEach((b) => {
+    b.addEventListener('click', () => showTab(b.dataset.tab));
+  });
+  // 万一点击事件没绑上（脚本报错等），用事件委托再兜一层
+  const nav = document.getElementById('tabs');
+  if (nav) {
+    nav.addEventListener('click', (e) => {
+      const btn = e.target.closest ? e.target.closest('button[data-tab]') : null;
+      if (btn) showTab(btn.dataset.tab);
+    });
+  }
+  // 支持用网址直接打开某个页签，例如 family.html#map
+  const hashOf = () => ((window.location && window.location.hash) || '').replace('#', '');
+  const want = hashOf();
+  // 远程端默认落在「和家人说话」：刷新后先看到聊天记录
+  showTab(TAB_IDS.includes(want) ? want : (LEGACY_TAB[want] || 'messages'));
+  window.addEventListener('hashchange', () => {
+    const h = hashOf();
+    if (TAB_IDS.includes(h)) showTab(h);
+  else if (LEGACY_TAB[h]) showTab(LEGACY_TAB[h]);
+  });
+}
+
+$('#btnPrune').onclick = async () => {
+  const r = await fetch('/api/db/prune', { method: 'POST' }).then((x) => x.json());
+  $('#dbFileInfo').textContent = '清掉了 ' + r.removed + ' 个没人提到的空条目';
+  await load();
+};
+
+/* ==================================================================
+   改基本信息（称呼 / 出生年份 / 老家）
+   ------------------------------------------------------------------
+   这几项以前写死在库里，改一次要手动动数据库。现在页面上直接改。
+   注意：改了**不会**回头重算已有记忆的年份 —— 那是历史事实，不该事后改写。
+   ================================================================== */
+let PERSONA = null;
+
+function openPersona() {
+  const p = PERSONA || {};
+  $('#pfCall').value = p.elder_call || '';
+  $('#pfBirth').value = p.birth_year || '';
+  $('#pfHome').value = p.hometown || '';
+  $('#personaModal').hidden = false;
+  $('#pfCall').focus();
+}
+function closePersona() { $('#personaModal').hidden = true; }
+
+/* 账号 / 设置弹窗（和老人端同一套结构） */
+const famAcctModal = $('#famAcctModal');
+function famTab(name) {
+  for (const b of document.querySelectorAll('#famAcctTabs button')) {
+    b.classList.toggle('on', b.dataset.ftab === name);
+  }
+  $('#famTabAccount').hidden = name !== 'account';
+  $('#famTabSettings').hidden = name !== 'settings';
+}
+async function openFamAcct(tab = 'account') {
+  famAcctModal.hidden = false;
+  famTab(tab);
+  $('#famPwMsg').textContent = '';
+  $('#famPwMsg').className = 'acct-msg';
+  try {
+    const r = await fetch('/api/auth/me');
+    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return; }
+    if (r.ok) $('#famAcctName').textContent = (await r.json()).user?.username || '—';
+  } catch { /* ignore */ }
+}
+$('#famAccountBtn').onclick = () => openFamAcct('account');
+$('#famAcctTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-ftab]');
+  if (b) famTab(b.dataset.ftab);
+});
+$('#famAcctClose').onclick = () => { famAcctModal.hidden = true; };
+famAcctModal.onclick = (e) => { if (e.target === famAcctModal) famAcctModal.hidden = true; };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !famAcctModal.hidden) famAcctModal.hidden = true;
+});
+$('#famEditPersona').onclick = () => { famAcctModal.hidden = true; openPersona(); };
+$('#famPwSave').onclick = async () => {
+  const msg = $('#famPwMsg');
+  const oldPassword = $('#famOldPw').value;
+  const newPassword = $('#famNewPw').value;
+  const again = $('#famNewPw2').value;
+  msg.className = 'acct-msg';
+  if (!oldPassword || !newPassword) { msg.textContent = '旧密码和新密码都要填'; return; }
+  if (newPassword.length < 6) { msg.textContent = '新密码至少 6 位'; return; }
+  if (newPassword !== again) { msg.textContent = '两次输入的新密码不一样'; return; }
+  const btn = $('#famPwSave');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/auth/change-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) { msg.textContent = data.error || '改不了，再试一次'; return; }
+    msg.className = 'acct-msg ok';
+    msg.textContent = '密码改好了。其它设备上的登录已退出，这台继续用。';
+    $('#famOldPw').value = ''; $('#famNewPw').value = ''; $('#famNewPw2').value = '';
+  } catch (e) {
+    msg.textContent = '连不上服务：' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+$('#famLogout').onclick = async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+  try { localStorage.removeItem('seyo.session'); } catch { /* ignore */ }
+  location.href = '/login';
+};
+$('#pfCancel').onclick = closePersona;
+$('#personaModal').onclick = (e) => { if (e.target === $('#personaModal')) closePersona(); };
+$('#pfSave').onclick = async () => {
+  const patch = {
+    elder_call: $('#pfCall').value.trim() || '爷爷',
+    birth_year: Number($('#pfBirth').value.trim()) || null,
+    hometown: $('#pfHome').value.trim(),
+  };
+  const btn = $('#pfSave');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/persona', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }).then((x) => x.json());
+    PERSONA = r.persona || patch;
+    closePersona();
+    await load();          // 重新拉一遍，标题、地图兜底都跟着变
+  } catch (e) {
+    showError('保存基本信息', e);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+/* ==================================================================
+   重置
+   ------------------------------------------------------------------
+   两级确认：第一次点变成"真的重置？"，再点才执行。
+   重置的是**这一份档案的全部**：记忆、对话、照片、吃药安排和吃药记录，
+   连称呼/出生年份/老家也一起清（清完自动弹出让人重新填）。API key 不动。
+   清之前先把库备份一份，万一误点还能捞回来。
+   ================================================================== */
+$('#famResetAll').onclick = async () => {
+  const b = $('#famResetAll');
+  if (b.dataset.armed !== '1') {
+    b.dataset.armed = '1';
+    b.textContent = '真的重置？再点一下';
+    setTimeout(() => { b.dataset.armed = '0'; b.textContent = '重置数据'; }, 5000);
+    return;
+  }
+  b.dataset.armed = '0';
+  b.disabled = true;
+  b.textContent = '正在重置……';
+  try {
+    const r = await fetch('/api/reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // 连称呼/出生年份/老家一起清 —— 清完自动弹出让人重新填
+      body: JSON.stringify({}),
+    }).then((x) => x.json());
+    MEDS = null;           // 吃药安排/记录也一起清了
+    try { localStorage.setItem('seyo.reset', String(Date.now())); } catch { /* ignore */ }
+    b.textContent = '已重置';
+    setTimeout(() => { b.textContent = '重置数据'; b.disabled = false; }, 1600);
+    await load();          // 页面跟着变空
+  } catch (e) {
+    showError('重置', e);
+    b.textContent = '重置';
+    b.disabled = false;
+  }
+};
+
+  // 全局兜底：任何漏网的错都写到页面上，不让你看到白屏
+  window.addEventListener('error', (e) => showError('页面脚本', e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => showError('异步操作', e.reason));
+
+  // 窗口大小变了要重画，否则地图会被拉变形
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const pg = document.getElementById('p-graph');
+      if (pg && !pg.hidden) safe('人物图谱', renderGraph);
+      const pm = document.getElementById('p-map');
+      if (pm && !pm.hidden) safe('足迹地图', renderMap);
+    }, 220);
+  });
+
+  // 先把数据取回来，再绑页签 —— 否则网址带 #graph 时会抢在数据到位前渲染，
+  // 图表就会报 "Cannot read properties of null (reading 'graph')"。
+  load().then(() => bindTabs()).catch((e) => {
+    showError('初始化', e);
+    bindTabs();
+  });
+
+  // 心情提醒 + 消息轮询（只看当前页签，省得后台一直请求）
+  refreshMoodAlert();
+  setInterval(refreshMoodAlert, 20000);
+  setInterval(() => { if (!$('#p-messages').hidden) loadMessages(); }, 8000);
+</script>
+<footer class="site-foot">
+  <div class="wrap">
+    <span>岁语</span>
+    <span></span>
+  </div>
+</footer>
+
+<script src="/resetwatch.js"></script>
+<script src="/vkbd.js"></script>
+</body>
+</html>

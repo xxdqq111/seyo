@@ -19,8 +19,9 @@
       </span>
     </a>
     <nav class="nav-links">
-      <a class="nav-link" href="/"><span class="ico">💬</span>对话</a>
-      <a class="nav-link on" href="/family.html"><span class="ico">📖</span>查看端</a>
+      <a class="nav-link" href="/">对话</a>
+      <a class="nav-link on" href="/family.html">查看端</a>
+      <button class="nav-link" id="famAccountBtn" type="button" title="账号与设置" aria-label="账号与设置"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"></circle><path d="M4.5 20c.8-4 3.8-6.2 7.5-6.2s6.7 2.2 7.5 6.2"></path></svg></span></button>
     </nav>
   </div>
 </header>
@@ -29,12 +30,8 @@
   <div class="wrap">
 
     <div class="page-head">
-      <h1>家人查看端</h1>
-      <p class="sub" id="subtitle">老人在设备上讲的话，都会整理成记忆存在这里</p>
-      <div class="head-acts">
-        <button class="mini" id="btnEditPersona">✎ 改一下基本信息</button>
-        <button class="mini danger" id="btnResetAll">清空所有记忆和对话</button>
-      </div>
+      <h1>查看端</h1>
+      <p class="sub" id="subtitle"></p>
     </div>
 
   <!-- 改基本信息（称呼 / 出生年份 / 老家）-->
@@ -52,11 +49,11 @@
     </div>
   </div>
 
-  <!-- 改一条记忆的时间 / 人物 / 地点 / 事件标签 -->
+  <!-- 编辑一条记忆：内容 + 时间 / 人物 / 地点 / 事件 -->
   <div class="modal" id="tagModal" hidden>
     <div class="modal-box">
-      <h3>编辑标签</h3>
-      <p class="modal-hint" id="tagStmt"></p>
+      <h3>编辑这条记忆</h3>
+      <label class="fld"><span>记忆内容</span><input id="tgStatement" placeholder="整理后的那句话"></label>
       <label class="fld"><span>时间说法</span><input id="tgTime" placeholder="青年时期 / 1968 年"></label>
       <label class="fld"><span>年份（四位，可空）</span><input id="tgYear" inputmode="numeric" placeholder="1968"></label>
       <label class="fld"><span>人物（逗号分隔）</span><input id="tgPersons" placeholder="张师傅, 老伴秀兰"></label>
@@ -79,6 +76,7 @@
     <button data-tab="memories">记忆库</button>
     <button data-tab="graph">人物图谱</button>
     <button data-tab="map">足迹地图</button>
+    <button data-tab="meds">吃药提醒</button>
   </nav>
 
   <section class="panel" id="p-timeline">
@@ -108,15 +106,11 @@
     <div id="groupChips"></div>
     <div id="searchInfo"></div>
     <table id="libTable"></table>
-    <details class="rawdb">
-      <summary>原始数据</summary>
-      <div class="filters">
-        <span class="muted" id="dbFileInfo"></span>
-        <button id="btnPrune">清掉没人提到的空条目</button>
-        <button id="btnReloadDb">重新载入</button>
-      </div>
-      <div id="dbBody"><p class="empty">点开才载入……</p></div>
-    </details>
+    <div class="lib-foot">
+      <span class="muted" id="dbFileInfo"></span>
+      <button class="mini" id="btnPrune">清理空条目</button>
+      <a class="mini" href="/api/db" download>下载数据(JSON)</a>
+    </div>
   </section>
 
   <section class="panel" id="p-graph" hidden>
@@ -145,10 +139,74 @@
     </div>
           </section>
 
+  <section class="panel" id="p-meds" hidden>
+    <h2>吃药提醒</h2>
+    <div class="med-list" id="medList"></div>
+    <div class="med-form">
+      <input id="medName" class="med-input" placeholder="药名，比如：降压药" autocomplete="off">
+      <input id="medDose" class="med-input" placeholder="每次吃多少，比如：1 片（可不填）" autocomplete="off">
+      <input id="medTimes" class="med-input" placeholder="每天几点：08:00，或 08:00,20:00" autocomplete="off">
+      <input id="medNote" class="med-input" placeholder="备注：饭后吃 / 随餐（可不填）" autocomplete="off">
+      <button id="medAdd" class="mini primary">＋ 添加这个药</button>
+      <button id="medCancel" class="mini" hidden>取消编辑</button>
+    </div>
+    <div id="medMsg" class="muted" style="margin-top:6px"></div>
+
+    <h3 style="font-size:17px;margin:24px 0 8px">今天的药</h3>
+    <div id="medToday"><p class="muted">载入中……</p></div>
+  </section>
+
 
   </div>
 </main>
 
+<!-- 账号 / 设置弹窗（和老人端同一套结构、同一套样式） -->
+<div class="account-modal" id="famAcctModal" hidden>
+  <div class="account-card">
+    <div class="account-head">
+      <div class="account-tabs" id="famAcctTabs">
+        <button data-ftab="account" class="on">账号</button>
+        <button data-ftab="settings">设置</button>
+      </div>
+      <button class="account-close" id="famAcctClose" title="收起">×</button>
+    </div>
+
+    <div class="account-body" id="famTabAccount">
+      <div class="account-who">当前登录：<b id="famAcctName">…</b></div>
+
+      <h3 class="acct-sub">修改密码</h3>
+      <label class="acct-label" for="famOldPw">旧密码</label>
+      <input class="acct-input" id="famOldPw" type="password" autocomplete="current-password" placeholder="输入现在的密码">
+      <label class="acct-label" for="famNewPw">新密码</label>
+      <input class="acct-input" id="famNewPw" type="password" autocomplete="new-password" placeholder="至少 6 位">
+      <label class="acct-label" for="famNewPw2">再输一次新密码</label>
+      <input class="acct-input" id="famNewPw2" type="password" autocomplete="new-password" placeholder="再输一遍">
+      <button class="acct-save" id="famPwSave">保存新密码</button>
+      <div class="acct-msg" id="famPwMsg"></div>
+
+      <button class="acct-save acct-logout" id="famLogout">退出登录</button>
+    </div>
+
+    <div class="account-body" id="famTabSettings" hidden>
+      <h3 class="acct-sub">资料</h3>
+      <div class="set-block">
+        <div class="set-title">显示</div>
+        <button id="fullscreenBtn" class="switch wide on"><span class="fs-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></span><span id="fsLabel">全屏：开</span></button>
+      </div>
+      <div class="modal-acts" style="justify-content:flex-start">
+        <button class="mini" id="famEditPersona">修改基本信息</button>
+        <button class="mini danger" id="famResetAll">重置数据</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 给时间轴卡片 / 地图浮窗加照片：一个共用的隐藏文件选择器 -->
+<input type="file" id="photoInput" accept="image/*" multiple hidden>
+
+<script src="/resetwatch.js"></script>
+<script src="/fullscreen.js"></script>
+<script src="/navframe.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -159,6 +217,7 @@ const api = async (u, opt = {}) => {
   const timer = setTimeout(() => ctl.abort(), ms);
   try {
     const r = await fetch(u, { ...opt, signal: ctl.signal });
+    if (r.status === 401) { location.href = '/login'; throw new Error('请先登录'); }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch (e) {
@@ -175,7 +234,7 @@ function showError(where, e) {
   const box = document.getElementById('errBox');
   if (!box) return;
   box.hidden = false;
-  box.innerHTML = '⚠️ <b>' + esc(where) + '出错</b>：' + esc(e && e.message ? e.message : String(e))
+  box.innerHTML = '<b>' + esc(where) + '出错</b>：' + esc(e && e.message ? e.message : String(e))
     + '　<button class="mini primary" id="btnRetryAll">重新载入</button>'
     + '<br><span style="font-size:12px">页面其它部分仍然可用。若服务刚重启，点"重新载入"即可。</span>';
   const btn = document.getElementById('btnRetryAll');
@@ -189,6 +248,7 @@ function safe(label, fn) {
 }
 
 async function load() {
+  FOOT = null;             // 数据变了：地图上的地点、合并叙述都要重取
   try {
     DATA = await api('/api/family');
   } catch (e) {
@@ -222,6 +282,11 @@ async function load() {
   } catch (e) { showError('显示标题', e); }
 
   DATA.sentences = DATA.sentences || (DATA.archive && DATA.archive.sentences) || [];
+  const dbInfo = $('#dbFileInfo');
+  if (dbInfo) {
+    const st = DATA.stats || {};
+    dbInfo.textContent = '数据库文件：' + (st.dbFile || '—') + (st.sentences != null ? `　共 ${st.sentences} 条记忆` : '');
+  }
   safe('统计卡片', renderCards);
   safe('陪伴守望', renderWatch);
   safe('时间轴', renderTimeline);
@@ -229,7 +294,9 @@ async function load() {
   safe('四个维度', renderDims);
   safe('主句库', () => renderLibrary(DATA.sentences));
   safe('人物图谱', renderGraph);
-  // 地图与数据库不在这里画：点开对应页签再画，免得拖慢首页
+  // 地图不在这里主动画（拖慢首页）；但已经开着的话，数据变了就得跟着刷新
+  const pm = document.getElementById('p-map');
+  if (pm && !pm.hidden) afterLayout(() => safe('足迹地图', renderMap));
 }
 
 function renderCards() {
@@ -266,8 +333,22 @@ function renderWatch() {
     parts.push(`<b>${what}</b> —— ${moodTxt}${mood.source === 'camera' ? '，岁语已经过去陪他了' : ''}`);
   }
   if (idleTooLong) parts.push(`已经 <b>${Math.floor(w.silentMinutes / 60)} 小时 ${w.silentMinutes % 60} 分钟</b>没说话`);
-  box.innerHTML = `🫶 ${parts.join('；')}。${w.cameraOn ? '<span class="muted">（摄像头情绪识别开着）</span>' : ''}`;
+  box.innerHTML = `${parts.join('；')}。${w.cameraOn ? '<span class="muted">（摄像头情绪识别开着）</span>' : ''}`;
   box.hidden = false;
+}
+
+/* 照片条：时间轴卡片和地图浮窗共用。
+   照片挂在"那条记忆"上，所以不管分组怎么合并，图片都跟着走。 */
+function photoStrip(photos, anchorId, { big = false } = {}) {
+  const cells = (photos || []).map((ph) => `<span class="photo-cell">
+      <a href="${esc(ph.url)}" target="_blank" rel="noreferrer"><img src="${esc(ph.url)}" alt="${esc(ph.caption || '照片')}" loading="lazy"></a>
+      <button class="photo-del" data-photo-del="${esc(ph.id)}" title="删除这张照片">×</button>
+    </span>`).join('');
+  const add = anchorId
+    ? `<button class="photo-add" data-photo-add="${esc(anchorId)}" title="给这件事加照片">＋ 照片</button>`
+    : '';
+  if (!cells && !add) return '';
+  return `<div class="photo-strip${big ? ' big' : ''}">${cells}${add}</div>`;
 }
 
 function renderTimeline() {
@@ -290,11 +371,14 @@ function renderTimeline() {
            <ul class="tl-items">${g.items.map((it) => `<li${it.raw && it.raw !== it.statement ? ` title="原话：${esc(it.raw)}"` : ''}>${esc(it.statement)}</li>`).join('')}</ul>
          </details>`
       : `<ul class="tl-items">${g.items.map((it) => `<li${it.raw && it.raw !== it.statement ? ` title="原话：${esc(it.raw)}"` : ''}>${esc(it.statement)}</li>`).join('')}</ul>`;
+    /* 这张卡的事件照片；加照片默认挂到组里第一条记忆上 */
+    const photos = photoStrip(g.photos, g.items[0] && g.items[0].id);
     return `<div class="tl-node ${side}${y ? '' : ' approx'}">
       <span class="tl-dot"></span>
       <div class="tl-card">
         <div class="tl-when">${when}<span class="tl-n">${g.items.length} 条</span></div>
         ${body}
+        ${photos}
       </div>
     </div>`;
   }).join('');
@@ -315,21 +399,30 @@ let grouping = '';        // '' | person | time | place | event
 /** 切到记忆库时调用 */
 function renderMemories() {
   renderGroupBar();
-  if (!($('#libTable').innerHTML || '').trim()) renderLibrary(DATA.sentences || []);
+  if (!($('#libTable').innerHTML || '').trim()) renderLibrary((DATA || {}).sentences || []);
 }
 
-/* 时间轴缺「合并叙述」（一个时间段里几条记忆还没合成一句话）→ 后台补一次再重画。
-   不 await：页面先显示逐条，补齐后自动换成一句话。
-   这一步以前是纯手动（要自己跑 /api/timeline/narrate），清了库或者来了新记忆之后
-   时间轴就退回逐条显示，看着像"没整理过"。 */
+/* 缺「合并叙述」（同一个时间段 / 同一个地点里几条记忆还没合成一句话）→ 后台补一次。
+   不 await：页面先按逐条显示，补齐后自动换成一句话。
+   时间轴和地图浮窗用的是同一套缓存，所以两边的"待合并"一起看、一次补完。 */
 let narrating = false;
+let lastNarrateTry = '';   // 上次没补成时问的是哪几段 —— 一样就不再问，免得模型没配时反复重试
 async function maybeNarrate() {
-  const tl = (DATA.archive || {}).timeline || [];
-  if (narrating || !tl.some((g) => g.needNote)) return;
+  if (narrating || !DATA) return;
+  const tlNeed = ((DATA.archive || {}).timeline || []).filter((g) => g.needNote).map((g) => g.key);
+  const mapNeed = ((FOOT && FOOT.places) || []).filter((p) => p.located && p.needNote).map((p) => p.key);
+  const pending = [...tlNeed, ...mapNeed].filter(Boolean);
+  if (!pending.length) return;
+  const sig = pending.slice().sort().join('\n');
+  if (sig === lastNarrateTry) return;
+  lastNarrateTry = sig;
   narrating = true;
   try {
-    await fetch('/api/timeline/narrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    await load();               // 重新拉一遍，时间轴就有 note 了
+    const r = await fetch('/api/timeline/narrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then((x) => x.json());
+    if (!r || !r.changed) return;   // 模型没配 / 没判出来：保持逐条显示，别白重画
+    FOOT = null;                    // 新叙述进库了，地图数据也要重取
+    await load();                   // 重新拉一遍：时间轴、地图浮窗都跟着变
   } catch { /* 失败就逐条显示，也能看 */ } finally {
     narrating = false;
   }
@@ -398,7 +491,7 @@ function card(title, list, item) {
 function renderLibrary(items, info) {
   $('#searchInfo').innerHTML = info || '';
   $('#libTable').innerHTML = items.length
-    ? `<thead><tr><th>#</th><th>记忆内容</th><th>常见问法</th><th>时间</th><th>人物 · 地点 · 事件</th><th>状态</th></tr></thead>
+    ? `<thead><tr><th>#</th><th>记忆内容</th><th>常见问法</th><th>时间</th><th>人物 · 地点 · 事件</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${items.map((s) => `<tr>
         <td>${s.seq ?? ''}</td>
         <td class="main">${esc(s.statement)}</td>
@@ -406,41 +499,60 @@ function renderLibrary(items, info) {
         <td>${esc(s.time_label || (s.year ? s.year + ' 年' : '—'))}</td>
         <td>${[...(s.persons || []), ...(s.places || []), ...(s.events || [])].map((x) => `<span class="pill">${esc(x)}</span>`).join('') || '—'}</td>
         <td><span class="pill green">已记下</span>
-          <div class="muted" style="font-size:12px">置信度 ${s.confidence}　被询问 ${s.asked_count ?? 0} 次</div>
-          <button class="mini tag-btn" data-id="${esc(s.id)}" data-seq="${esc(s.seq ?? '')}" title="改时间/人物/地点/事件">✎ 改标签</button></td>
+          <div class="muted" style="font-size:12px">置信度 ${s.confidence}　被询问 ${s.asked_count ?? 0} 次</div></td>
+        <td class="row-acts">
+          <button class="mini" data-edit-id="${esc(s.id)}" title="改内容 / 时间 / 人物 / 地点 / 事件">编辑</button>
+          <button class="mini danger" data-del-id="${esc(s.id)}" title="删掉这条记忆">删</button>
+        </td>
       </tr>`).join('')}</tbody>`
     : '<tbody><tr><td class="empty">暂无记录</td></tr></tbody>';
 
-  // 每行的「✎ 改标签」→ 打开标签编辑弹窗
-  document.querySelectorAll('#libTable .tag-btn').forEach((b) => {
+  bindLibActions(items);
+}
+
+/** 记忆表格里每行的「编辑 / 删除」（主表和搜索结果共用） */
+function bindLibActions(items) {
+  document.querySelectorAll('#libTable [data-edit-id]').forEach((b) => {
     b.onclick = () => {
-      const row = items.find((x) => String(x.id) === b.dataset.id);
+      const row = items.find((x) => String(x.id) === b.dataset.editId);
       if (row) openTags(row);
+    };
+  });
+  document.querySelectorAll('#libTable [data-del-id]').forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.armed !== '1') {
+        b.dataset.armed = '1'; b.textContent = '真的删？';
+        setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 3000);
+        return;
+      }
+      await fetch('/api/sentences/' + encodeURIComponent(b.dataset.delId), { method: 'DELETE' });
+      await load();
     };
   });
 }
 
 /* ==================================================================
-   改一条记忆的时间 / 人物 / 地点 / 事件
+   编辑一条记忆：内容 + 时间 / 人物 / 地点 / 事件
    ------------------------------------------------------------------
-   这四个本来是从原话里自动抽的，抽错很正常（"车间"当地点、
-   "时候穷"当人物、年份抽成 1853）。家人最清楚对不对，所以让人直接改。
-   改完后端会**重挂维度关联**（图谱/地图/维度面板读的是关联表）。
+   以前这里只有"改标签"，改文字在下面的"原始数据"里另开一个弹窗 ——
+   同一行数据要改两处，看着就乱。现在合成一个编辑框：
+   内容、时间、人物、地点、事件一次改完。
    ================================================================== */
 function splitTags(v) {
   return String(v || '').split(/[,，、;；\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 8);
 }
 
 function openTags(row) {
-  $('#tagStmt').textContent = row.statement || '';
+  $('#tgStatement').value = row.statement || '';
   $('#tgTime').value = row.time_label || '';
   $('#tgYear').value = row.year || '';
   $('#tgPersons').value = (row.persons || []).join('，');
   $('#tgPlaces').value = (row.places || []).join('，');
   $('#tgEvents').value = (row.events || []).join('，');
   $('#tagModal').dataset.id = row.id;
+  $('#tagModal').dataset.statement = row.statement || '';
   $('#tagModal').hidden = false;
-  $('#tgPersons').focus();
+  $('#tgStatement').focus();
 }
 function closeTags() { $('#tagModal').hidden = true; }
 
@@ -449,8 +561,20 @@ $('#tagModal').onclick = (e) => { if (e.target === $('#tagModal')) closeTags(); 
 $('#tgSave').onclick = async () => {
   const id = $('#tagModal').dataset.id;
   const btn = $('#tgSave');
+  const statement = $('#tgStatement').value.trim();
+  if (!statement) { alert('记忆内容不能空着'); return; }
   btn.disabled = true;
   try {
+    /* 文字走"改一条记忆"的接口；标签走维度重挂的接口。
+       同一行、同一个弹窗，一次保存。 */
+    if (statement !== ($('#tagModal').dataset.statement || '')) {
+      const r1 = await fetch('/api/db/sentence/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statement }),
+      }).then((x) => x.json());
+      if (r1.error) throw new Error(r1.error);
+    }
     const r = await fetch('/api/sentences/' + encodeURIComponent(id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -466,7 +590,7 @@ $('#tgSave').onclick = async () => {
     closeTags();
     await load();            // 重新拉：时间轴/地图/维度都跟着变
   } catch (e) {
-    showError('保存标签', e);
+    showError('保存记忆', e);
   } finally {
     btn.disabled = false;
   }
@@ -482,13 +606,20 @@ $('#btnSearch').onclick = async () => {
   }
   const r = await api('/api/search?q=' + encodeURIComponent(q));
   $('#searchInfo').innerHTML = `<p class="muted">「${esc(q)}」命中 ${r.hits.length} 条（按相关度排）</p>`;
+  const allRows = DATA.sentences || [];
+  const hitRows = r.hits.map((h) => ({ ...h, ...(allRows.find((x) => x.id === h.id) || {}) }));
   $('#libTable').innerHTML = r.hits.length
-    ? `<thead><tr><th>#</th><th>命中的主句</th><th>问法</th><th>相关度</th><th>状态</th></tr></thead>
+    ? `<thead><tr><th>#</th><th>命中的主句</th><th>问法</th><th>相关度</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${r.hits.map((h) => `<tr><td>${h.seq}</td><td class="main">${esc(h.statement)}</td>
         <td class="ask">${esc((h.asks || [])[0] || '')}</td>
         <td>${h.score}<div class="muted" style="font-size:12px">字面 ${h.why.overlap} · 类别 ${h.why.kinds} · 称呼 ${h.why.name ?? 0}</div></td>
-        <td><span class="pill green">已记下</span></td></tr>`).join('')}</tbody>`
+        <td><span class="pill green">已记下</span></td>
+        <td class="row-acts">
+          <button class="mini" data-edit-id="${esc(h.id)}">编辑</button>
+          <button class="mini danger" data-del-id="${esc(h.id)}">删</button>
+        </td></tr>`).join('')}</tbody>`
     : `<tbody><tr><td class="empty">主句库里没有相关的内容。分析结果：人物 ${r.heard.persons.join('、') || '—'}｜地点 ${r.heard.places.join('、') || '—'}｜事件 ${r.heard.events.join('、') || '—'}</td></tr></tbody>`;
+  bindLibActions(hitRows);
 };
 $('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btnSearch').click(); });
 document.querySelectorAll('#groupBar button').forEach((b) => {
@@ -498,12 +629,6 @@ document.querySelectorAll('#groupBar button').forEach((b) => {
     renderLibrary(DATA.sentences || []);        // 换分组时把表恢复成全部
   };
 });
-/* 原始数据折叠着，点开才去取（省一次请求） */
-document.addEventListener('toggle', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('rawdb') && e.target.open) {
-    safe('原始数据', renderDb);
-  }
-}, true);
 $('#btnAll').onclick = () => { $('#q').value = ''; renderLibrary(DATA.sentences || []); };
 $('#btnCsv').onclick = () => {
   const rows = [['编号', '主句', '疑问形式', '时间', '状态']].concat((DATA.sentences || []).map((s) => [s.seq, s.statement, (s.asks || []).join(' / '), s.time_label || s.year || '', s.status]));
@@ -715,6 +840,12 @@ async function renderMap() {
 
   replayFlags();
   bindFlagClicks();
+  /* 叙述是后台补的：补完会重画地图，正开着的浮窗也跟着换成带那句话的版本 */
+  if (openPlaceId) {
+    const open = pts.find((p) => p.id === openPlaceId);
+    if (open) showPlace(open); else hidePlace();
+  }
+  maybeNarrate();     // 这面旗下的几条记忆还没合成一句话 → 后台补，补好重画
 }
 
 /** 点旗帜 → 弹出浮窗看这个地方的往事 */
@@ -732,13 +863,14 @@ function bindFlagClicks() {
 }
 
 /** 地点浮窗（点地图空白处、或者点关闭就收起来） */
+let openPlaceId = '';   // 开着的是哪个地点 —— 合并叙述补上后原样刷新它
 function showPlace(p) {
   hidePlace();
+  openPlaceId = p.id || '';
   const d = document.createElement('div');
   d.className = 'place-pop';
   d.id = 'placePop';
-  /* 几条记忆可能挂在同一个地方（城市 + 具体地点），会重复 —— 去个重。
-     时间也去重：label 里已经有"约/大约"就不再在前面加"约"。 */
+  /* 几条记忆可能挂在同一个地方（城市 + 具体地点），会重复 —— 去个重。 */
   const seen = new Set();
   const list = (p.memories || []).filter((m) => {
     const t = String(m.statement || '').trim();
@@ -746,24 +878,112 @@ function showPlace(p) {
     seen.add(t);
     return true;
   });
-  const tl = String(p.time_label || '');
-  const when = (p.approx && !/^(约|大约|大概)/.test(tl)) ? '约 ' + tl : tl;
-  d.innerHTML = `<button class="place-pop-x" title="关闭">✕</button>
+  const items = list.map((m) => `<li>${esc(m.statement)}</li>`).join('');
+  /* 浮窗只放整理过的那一句，原话不再展开 —— 家里人看的是"发生了什么"，
+     不是三条同义句。还没合并出句子时先逐条兜底，不然点开是空的。 */
+  const body = p.note
+    ? `<p class="place-pop-note">${esc(p.note)}</p>`
+    : `<ul>${items || '<li class="muted">暂无记录</li>'}</ul>`;
+  /* 年份那行去掉了（1988 年这种跟正文容易对不上、也帮不上什么忙）；
+     具体小地名（剪子巷、国棉三厂…）还留着，用来分清是哪一处。 */
+  const spurs = (p.spurs || []).map((sp) => sp && sp.name).filter(Boolean);
+  const meta = spurs.length ? `<div class="place-pop-meta">${esc(spurs.join('、'))}</div>` : '';
+  /* 这个地点的照片；加照片默认挂到第一条记忆上（照片跟记忆走，时间轴也会出现） */
+  const anchor = (p.memories || []).find((m) => m && m.id)?.id || '';
+  d.innerHTML = `<button class="place-pop-x" title="关闭">×</button>
     <h3>${esc(p.label)}</h3>
-    <div class="place-pop-meta">${esc(when)}${p.spurs && p.spurs.length ? ' · ' + esc(p.spurs.map((sp) => sp.name).join('、')) : ''}</div>
-    ${p.note ? `<p class="place-pop-note">${esc(p.note)}</p>` : ''}
-    <ul class="${p.note ? 'place-pop-under' : ''}">${list.map((m) => `<li>${esc(m.statement)}</li>`).join('') || '<li class="muted">暂无记录</li>'}</ul>
-    <div class="place-pop-basis">定位依据：${esc(p.basis || '—')}</div>`;
+    ${meta}
+    ${body}
+    ${photoStrip(p.photos, anchor, { big: true })}`;
   document.body.appendChild(d);
   d.querySelector('.place-pop-x').onclick = hidePlace;
+  /* 点浮窗里面（加照片、删照片）不算"点别处"，别让它先把自己关掉 */
+  d.addEventListener('pointerdown', (e) => e.stopPropagation());
   // 点别处就收起来
   setTimeout(() => document.addEventListener('pointerdown', hidePlace, { once: true }), 0);
 }
 
 function hidePlace() {
+  openPlaceId = '';
   const old = document.getElementById('placePop');
   if (old) old.remove();
 }
+
+/* ---------- 记忆配图：时间轴卡片 / 地图浮窗上都能加 ---------- */
+const PHOTO_MAX_SIDE = 1600;   // 缩到这个尺寸就够看了，老人手机传原图会慢
+let photoAnchor = '';          // 这次要加到哪条记忆上
+
+/** 选中的图片 → 等比缩小 → JPEG base64（原图十几兆也能传上来） */
+function photoToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type || '')) { reject(new Error('这不是图片')); return; }
+    if (file.size > 30 * 1024 * 1024) { reject(new Error('图片太大（最多 30MB）')); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读不了这个文件'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('图片打不开'));
+      img.onload = () => {
+        const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(img.width || 1, img.height || 1));
+        const w = Math.max(1, Math.round((img.width || 1) * scale));
+        const h = Math.max(1, Math.round((img.height || 1) * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/jpeg', 0.86));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadPhotos(files) {
+  const anchor = photoAnchor;
+  if (!anchor) return;
+  const list = [...(files || [])];
+  if (!list.length) return;
+  let ok = 0;
+  for (const f of list) {
+    try {
+      const dataUrl = await photoToDataUrl(f);
+      await api('/api/photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sentenceId: anchor, dataUrl }),
+        timeout: 60000,
+      });
+      ok += 1;
+    } catch (e) { showError('上传照片', e); }
+  }
+  if (ok) await load();   // 时间轴、地图、正开着的浮窗一起刷新
+}
+
+/* 加照片 / 删照片：事件委托，卡片重画多少次都不用重新绑 */
+document.addEventListener('click', (e) => {
+  const add = e.target.closest ? e.target.closest('[data-photo-add]') : null;
+  if (add) {
+    e.preventDefault(); e.stopPropagation();
+    photoAnchor = add.dataset.photoAdd || '';
+    const input = document.getElementById('photoInput');
+    if (!input) return;
+    input.value = '';
+    input.click();
+    return;
+  }
+  const del = e.target.closest ? e.target.closest('[data-photo-del]') : null;
+  if (del) {
+    e.preventDefault(); e.stopPropagation();
+    const id = del.dataset.photoDel || '';
+    if (!id || !window.confirm('删掉这张照片？')) return;
+    fetch('/api/photos/' + encodeURIComponent(id), { method: 'DELETE' })
+      .then((r) => r.json())
+      .then(() => load())
+      .catch((err) => showError('删照片', err));
+  }
+});
+const photoInputEl = document.getElementById('photoInput');
+if (photoInputEl) photoInputEl.addEventListener('change', () => uploadPhotos(photoInputEl.files));
 
 /** 把所有旗子一次画好 —— 不再一面一面"插"出来 */
 function replayFlags() {
@@ -801,123 +1021,133 @@ function replayFlags() {
   bindFlagClicks();
 }
 
-/* ---------- 数据库：直接看库、直接删改 ---------- */
-let DB = null;
+/* ---------- 吃药提醒（家人端设置；老人端负责提醒） ----------
+   老人端到点会弹卡片、念一遍，没确认就一直催。
+   这里只负责"设什么药、几点吃"，以及看今天哪几顿吃了没有。 */
+let MEDS = null;       // 最近一次 /api/meds
+let medEditing = '';   // 正在改的那个药 id（空 = 新增）
 
-async function renderDb() {
-  const box = $('#dbBody');
-  box.innerHTML = '<p class="empty">正在读数据库……</p>';
-  DB = await api('/api/db/tables');
-  $('#dbFileInfo').textContent = '数据库文件：' + DB.dbFile + '　共 ' + DB.tables.length + ' 张表';
+const MED_STATE = {
+  done:  { text: '已吃过',       cls: 'green' },
+  due:   { text: '到点了，还没吃', cls: 'red' },
+  soon:  { text: '快到点了',      cls: 'gold' },
+  later: { text: '还没到',        cls: 'gray' },
+};
 
-  box.innerHTML = DB.tables.map((t) => {
-    const head = `<h3 style="font-size:16px;margin:18px 0 8px">${esc(t.label)} <span class="muted" style="font-weight:400;font-size:13px">${t.table} · ${t.count} 行</span></h3>`;
-    if (!t.rows.length) return head + '<p class="empty">空表</p>';
-    if (t.table === 'sentences') return head + renderSentenceRows(t.rows);
-    if (['people','times','places','events'].includes(t.table)) return head + renderDimRows(t);
-    if (t.table === 'utterances') return head + `<div class="cards" style="grid-template-columns:1fr">${t.rows.slice(0, 60).map((r) => `<div class="card" style="padding:8px 12px"><span class="pill ${r.role === 'elder' ? '' : 'gray'}">${r.role === 'elder' ? '老人' : '岁语'}</span> ${esc(r.text)}<div class="muted" style="font-size:12px">${esc(r.created_at)}</div></div>`).join('')}</div>`;
-    return head + simpleTable(t);
-  }).join('');
-
-  bindDbActions();
+async function renderMeds(refresh = false) {
+  if (refresh || !MEDS) {
+    try { MEDS = await api('/api/meds'); } catch (e) { showError('读吃药提醒', e); return; }
+  }
+  renderMedList();
+  renderMedToday();
 }
 
-function renderSentenceRows(rows) {
-  return rows.map((r) => {
-    const dims = r._dims || {};
-    const tags = [
-      ...(dims.persons || []).map((x) => '<span class="pill">' + esc(x.name) + '</span>'),
-      ...(dims.times || []).map((x) => '<span class="pill gray">' + esc(x.label) + '</span>'),
-      ...(dims.places || []).map((x) => '<span class="pill green">' + esc(x.name) + '</span>'),
-      ...(dims.events || []).map((x) => '<span class="pill" style="background:#f6efdd;color:#8a6a1f">' + esc(x.name) + '</span>'),
-    ].join(' ');
-    return `<div class="dbrow" data-id="${r.id}">
-      <div class="dbrow-head">
-        <span class="muted" style="font-size:13px">#${r.seq} · ${esc(r.id)} · ${esc(r.created_at)}</span>
-        <span>
-          <button class="mini" data-act="edit" data-id="${r.id}">改</button>
-          <button class="mini danger" data-act="del-sentence" data-id="${r.id}">删</button>
-        </span>
-      </div>
-      <div class="dbrow-body" data-edit-for="${r.id}">
-        <div class="main" style="font-size:17px">${esc(r.statement)}</div>
-        <div class="muted" style="font-size:13px">老人可能会问：${esc((JSON.parse(r.asks || '[]') || [])[0] || '—')}</div>
-        <div style="margin-top:6px">${tags || '<span class="muted">（没有实体）</span>'}</div>
-        <div class="muted" style="font-size:12px">时间 ${esc(r.time_label || r.time_raw || '—')} · 年份 ${r.year ?? '—'} · 置信 ${r.confidence} · ${r.status === 'confirmed' ? '已确认' : '待核对'} · 被问 ${r.asked_count} 次 · 讲过 ${r.told_count} 遍</div>
-      </div>
-    </div>`;
-  }).join('');
-}
+function renderMedList() {
+  const box = $('#medList');
+  if (!box) return;
+  const meds = (MEDS && MEDS.meds) || [];
+  if (!meds.length) { box.innerHTML = '<p class="muted">还没设过，下面加第一个药。</p>'; return; }
+  box.innerHTML = meds.map((m) => `<div class="med-row">
+    <div class="med-row-main">
+      <b>${esc(m.name)}</b>${m.dose ? '　' + esc(m.dose) : ''}<br>
+      <span class="med-row-times">每天 ${esc((m.times || []).join('、'))}</span>
+      ${m.note ? `<br><span class="med-row-note">${esc(m.note)}</span>` : ''}
+    </div>
+    <div class="row-acts">
+      <button class="mini" data-med-edit="${esc(m.id)}">编辑</button>
+      <button class="mini danger" data-med-del="${esc(m.id)}">删</button>
+    </div>
+  </div>`).join('');
 
-function renderDimRows(t) {
-  const dim = { people: 'person', times: 'time', places: 'place', events: 'event' }[t.table];
-  return '<div class="cards" style="grid-template-columns:1fr">' + t.rows.map((r) => {
-    const name = t.table === 'times' ? (r.label || r.raw) : r.name;
-    const aliases = r.aliases && JSON.parse(r.aliases || '[]');
-    return `<div class="card" style="padding:10px 14px">
-      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
-        <div><b style="font-size:16px;color:var(--ink)">${esc(name)}</b>
-          ${aliases && aliases.length > 1 ? '<span class="muted" style="font-size:12px">（' + esc(aliases.join('/')) + '）</span>' : ''}
-          <div class="muted" style="font-size:12px">${esc(r.id)} · 被提到 ${r.count} 次 · 关联 ${r._memories ?? 0} 条记忆${t.table === 'times' && r.from_year ? ' · ' + r.from_year + (r.to_year && r.to_year !== r.from_year ? '—' + r.to_year : '') : ''}</div>
-        </div>
-        <button class="mini danger" data-act="del-dim" data-dim="${dim}" data-id="${r.id}" data-mem="${r._memories ?? 0}">删</button>
-      </div>
-    </div>`;
-  }).join('') + '</div>';
-}
-
-function simpleTable(t) {
-  const cols = t.columns.filter((c) => !c.startsWith('_')).slice(0, 6);
-  return `<table><thead><tr>${cols.map((c) => '<th>' + esc(c) + '</th>').join('')}</tr></thead>
-    <tbody>${t.rows.map((r) => '<tr>' + cols.map((c) => '<td>' + esc(String(r[c] ?? '').slice(0, 120)) + '</td>').join('') + '</tr>').join('')}</tbody></table>`;
-}
-
-function bindDbActions() {
-  document.querySelectorAll('[data-act="del-sentence"]').forEach((b) => {
-    b.onclick = async () => {
-      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '真的删？'; setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 3000); return; }
-      await api('/api/sentences/' + b.dataset.id, { method: 'DELETE' });
-      await load(); await renderDb();
+  box.querySelectorAll('[data-med-edit]').forEach((b) => {
+    b.onclick = () => {
+      const m = meds.find((x) => x.id === b.dataset.medEdit);
+      if (!m) return;
+      medEditing = m.id;
+      $('#medName').value = m.name || '';
+      $('#medDose').value = m.dose || '';
+      $('#medTimes').value = (m.times || []).join(',');
+      $('#medNote').value = m.note || '';
+      $('#medAdd').textContent = '保存修改';
+      $('#medCancel').hidden = false;
+      $('#medName').focus();
     };
   });
-  document.querySelectorAll('[data-act="del-dim"]').forEach((b) => {
+  box.querySelectorAll('[data-med-del]').forEach((b) => {
     b.onclick = async () => {
-      const n = Number(b.dataset.mem || 0);
       if (b.dataset.armed !== '1') {
-        b.dataset.armed = '1';
-        b.textContent = n ? `还有 ${n} 条挂着，仍要删？` : '真的删？';
-        setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 4000);
+        b.dataset.armed = '1'; b.textContent = '真的删？';
+        setTimeout(() => { b.dataset.armed = '0'; b.textContent = '删'; }, 3000);
         return;
       }
-      const r = await fetch('/api/db/dimension/' + b.dataset.dim + '/' + b.dataset.id + '?force=1', { method: 'DELETE' }).then((x) => x.json());
-      if (!r.ok) alert(r.error || '删不掉');
-      await load(); await renderDb();
-    };
-  });
-  document.querySelectorAll('[data-act="edit"]').forEach((b) => {
-    b.onclick = () => {
-      const box = document.querySelector('[data-edit-for="' + b.dataset.id + '"]');
-      if (box.querySelector('.editbox')) return;
-      const cur = box.querySelector('.main').textContent;
-      const div = document.createElement('div');
-      div.className = 'editbox';
-      div.innerHTML = `<input value="${esc(cur)}" style="width:100%;min-height:40px;font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:10px">
-        <div style="margin-top:6px"><button class="mini primary" data-save>保存</button> <button class="mini" data-cancel>取消</button></div>`;
-      box.appendChild(div);
-      div.querySelector('[data-save]').onclick = async () => {
-        await fetch('/api/db/sentence/' + b.dataset.id, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ statement: div.querySelector('input').value }),
-        });
-        await load(); await renderDb();
-      };
-      div.querySelector('[data-cancel]').onclick = () => div.remove();
+      const r = await api('/api/meds/' + encodeURIComponent(b.dataset.medDel), { method: 'DELETE' });
+      if (r && r.ok !== false) { MEDS = r; resetMedForm(); renderMedList(); renderMedToday(); }
     };
   });
 }
 
+function renderMedToday() {
+  const box = $('#medToday');
+  if (!box) return;
+  const items = (MEDS && MEDS.items) || [];
+  if (!items.length) { box.innerHTML = '<p class="muted">今天没有要吃的药。</p>'; return; }
+  box.innerHTML = items.map((it) => {
+    const st = MED_STATE[it.state] || { text: it.state, cls: 'gray' };
+    let extra = '';
+    if (it.state === 'due' && it.minutes > 0) extra = `（过了 ${it.minutes} 分钟）`;
+    if (it.state === 'soon') extra = `（还有 ${Math.max(1, -it.minutes)} 分钟）`;
+    return `<div class="med-today-row">
+      <span class="med-today-time">${esc(it.time)}</span>
+      <span class="med-today-name"><b>${esc(it.name)}</b>${it.dose ? '　' + esc(it.dose) : ''}${it.note ? `<span class="muted">　${esc(it.note)}</span>` : ''}</span>
+      <span class="pill ${st.cls}">${st.text}${extra}</span>
+      ${it.state === 'done' ? '' : `<button class="mini" data-med-done="${esc(it.medId)}" data-med-slot="${esc(it.slot)}">标记吃过</button>`}
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('[data-med-done]').forEach((b) => {
+    b.onclick = async () => {
+      const r = await api('/api/meds/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ medId: b.dataset.medDone, slot: b.dataset.medSlot }),
+      });
+      if (r && r.ok) { MEDS = r; renderMedToday(); }
+    };
+  });
+}
+
+function resetMedForm() {
+  medEditing = '';
+  for (const id of ['medName', 'medDose', 'medTimes', 'medNote']) $('#' + id).value = '';
+  $('#medAdd').textContent = '＋ 添加这个药';
+  $('#medCancel').hidden = true;
+  $('#medMsg').textContent = '';
+}
+
+$('#medAdd').onclick = async () => {
+  const name = $('#medName').value.trim();
+  const times = $('#medTimes').value.trim();
+  if (!name) { $('#medMsg').textContent = '先写药名'; return; }
+  if (!times) { $('#medMsg').textContent = '写一下每天几点吃，比如 08:00'; return; }
+  const body = { name, dose: $('#medDose').value.trim(), times, note: $('#medNote').value.trim() };
+  if (medEditing) body.id = medEditing;
+  const r = await api('/api/meds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r || r.ok === false) { $('#medMsg').textContent = (r && r.error) || '保存失败'; return; }
+  MEDS = r;
+  const wasEdit = Boolean(medEditing);
+  resetMedForm();
+  renderMedList();
+  renderMedToday();
+  $('#medMsg').textContent = `${wasEdit ? '已保存' : '已添加'}：${name}（每天 ${(r.med && r.med.times || []).join('、')}）`;
+};
+$('#medCancel').onclick = resetMedForm;
+
 /* ---------- 页签切换 ---------- */
-const TAB_IDS = ['timeline', 'memories', 'graph', 'map'];
+const TAB_IDS = ['timeline', 'memories', 'graph', 'map', 'meds'];
 /** 旧的页签名（以前分开的三个）→ 现在都归到"记忆库" */
 const LEGACY_TAB = { dims: 'memories', library: 'memories', db: 'memories' };
 /**
@@ -946,6 +1176,7 @@ function showTab(name) {
   if (name === 'graph') safe('人物图谱', renderGraph);
   if (name === 'map') afterLayout(() => safe('足迹地图', renderMap));
   if (name === 'memories') safe('记忆库', renderMemories);
+  if (name === 'meds') safe('吃药提醒', () => renderMeds(true));
 }
 
 function bindTabs() {
@@ -975,9 +1206,8 @@ function bindTabs() {
 $('#btnPrune').onclick = async () => {
   const r = await fetch('/api/db/prune', { method: 'POST' }).then((x) => x.json());
   $('#dbFileInfo').textContent = '清掉了 ' + r.removed + ' 个没人提到的空条目';
-  await load(); await renderDb();
+  await load();
 };
-$('#btnReloadDb').onclick = async () => { await load(); await renderDb(); };
 
 /* ==================================================================
    改基本信息（称呼 / 出生年份 / 老家）
@@ -997,7 +1227,69 @@ function openPersona() {
 }
 function closePersona() { $('#personaModal').hidden = true; }
 
-$('#btnEditPersona').onclick = openPersona;
+/* 账号 / 设置弹窗（和老人端同一套结构） */
+const famAcctModal = $('#famAcctModal');
+function famTab(name) {
+  for (const b of document.querySelectorAll('#famAcctTabs button')) {
+    b.classList.toggle('on', b.dataset.ftab === name);
+  }
+  $('#famTabAccount').hidden = name !== 'account';
+  $('#famTabSettings').hidden = name !== 'settings';
+}
+async function openFamAcct(tab = 'account') {
+  famAcctModal.hidden = false;
+  famTab(tab);
+  $('#famPwMsg').textContent = '';
+  $('#famPwMsg').className = 'acct-msg';
+  try {
+    const r = await fetch('/api/auth/me');
+    if (r.status === 401) { location.href = '/login'; return; }
+    if (r.ok) $('#famAcctName').textContent = (await r.json()).user?.username || '—';
+  } catch { /* ignore */ }
+}
+$('#famAccountBtn').onclick = () => openFamAcct('account');
+$('#famAcctTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-ftab]');
+  if (b) famTab(b.dataset.ftab);
+});
+$('#famAcctClose').onclick = () => { famAcctModal.hidden = true; };
+famAcctModal.onclick = (e) => { if (e.target === famAcctModal) famAcctModal.hidden = true; };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !famAcctModal.hidden) famAcctModal.hidden = true;
+});
+$('#famEditPersona').onclick = () => { famAcctModal.hidden = true; openPersona(); };
+$('#famPwSave').onclick = async () => {
+  const msg = $('#famPwMsg');
+  const oldPassword = $('#famOldPw').value;
+  const newPassword = $('#famNewPw').value;
+  const again = $('#famNewPw2').value;
+  msg.className = 'acct-msg';
+  if (!oldPassword || !newPassword) { msg.textContent = '旧密码和新密码都要填'; return; }
+  if (newPassword.length < 6) { msg.textContent = '新密码至少 6 位'; return; }
+  if (newPassword !== again) { msg.textContent = '两次输入的新密码不一样'; return; }
+  const btn = $('#famPwSave');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/auth/change-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) { msg.textContent = data.error || '改不了，再试一次'; return; }
+    msg.className = 'acct-msg ok';
+    msg.textContent = '密码改好了。其它设备上的登录已退出，这台继续用。';
+    $('#famOldPw').value = ''; $('#famNewPw').value = ''; $('#famNewPw2').value = '';
+  } catch (e) {
+    msg.textContent = '连不上服务：' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+$('#famLogout').onclick = async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+  try { localStorage.removeItem('seyo.session'); } catch { /* ignore */ }
+  location.href = '/login';
+};
 $('#pfCancel').onclick = closePersona;
 $('#personaModal').onclick = (e) => { if (e.target === $('#personaModal')) closePersona(); };
 $('#pfSave').onclick = async () => {
@@ -1023,35 +1315,38 @@ $('#pfSave').onclick = async () => {
 };
 
 /* ==================================================================
-   清空所有记忆和对话
+   重置
    ------------------------------------------------------------------
-   两级确认：第一次点变成"真的清空？"，再点才执行。
-   清的是**记忆 + 对话记录**，基本信息和 API key 不动。
+   两级确认：第一次点变成"真的重置？"，再点才执行。
+   重置的是**这一份档案的全部**：记忆、对话、照片、吃药安排和吃药记录，
+   连称呼/出生年份/老家也一起清（清完自动弹出让人重新填）。API key 不动。
    清之前先把库备份一份，万一误点还能捞回来。
    ================================================================== */
-$('#btnResetAll').onclick = async () => {
-  const b = $('#btnResetAll');
+$('#famResetAll').onclick = async () => {
+  const b = $('#famResetAll');
   if (b.dataset.armed !== '1') {
     b.dataset.armed = '1';
-    b.textContent = '真的清空？再点一下';
-    setTimeout(() => { b.dataset.armed = '0'; b.textContent = '清空所有记忆和对话'; }, 5000);
+    b.textContent = '真的重置？再点一下';
+    setTimeout(() => { b.dataset.armed = '0'; b.textContent = '重置数据'; }, 5000);
     return;
   }
   b.dataset.armed = '0';
   b.disabled = true;
-  b.textContent = '正在清空……';
+  b.textContent = '正在重置……';
   try {
     const r = await fetch('/api/reset', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       // 连称呼/出生年份/老家一起清 —— 清完自动弹出让人重新填
       body: JSON.stringify({}),
     }).then((x) => x.json());
-    b.textContent = '已清空';
-    setTimeout(() => { b.textContent = '清空所有记忆和对话'; b.disabled = false; }, 1600);
+    MEDS = null;           // 吃药安排/记录也一起清了
+    try { localStorage.setItem('seyo.reset', String(Date.now())); } catch { /* ignore */ }
+    b.textContent = '已重置';
+    setTimeout(() => { b.textContent = '重置数据'; b.disabled = false; }, 1600);
     await load();          // 页面跟着变空
   } catch (e) {
-    showError('清空', e);
-    b.textContent = '清空所有记忆和对话';
+    showError('重置', e);
+    b.textContent = '重置';
     b.disabled = false;
   }
 };
@@ -1081,10 +1376,11 @@ $('#btnResetAll').onclick = async () => {
 </script>
 <footer class="site-foot">
   <div class="wrap">
-    <span>岁语 · 家人查看端</span>
-    <span>记忆存在老人那台设备上；这里只读，除数据库页签可删改</span>
+    <span>岁语</span>
+    <span></span>
   </div>
 </footer>
 
+<script src="/vkbd.js"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
  * 对不上的地名不会瞎标，会列在下面提示"没能定位"。
  */
 
-import { getPlaceGeo, getNote } from './store.mjs';
+import { getPlaceGeo, getNote, photosForSentences, groupKey } from './store.mjs';
 
 /** 省 / 自治区 / 直辖市（省会坐标，用于只讲到省时） */
 const PROVINCES = {
@@ -123,20 +123,27 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
   // 只要这条记忆还在，它涉及的年份就该给地点用上
   //   "我年轻时候在纺织厂…" 归一成 1966—1973，取区间起点 1966
   dbi.prepare(
-    `UPDATE places SET (year, year_from, year_to) = (
-       SELECT MIN(s.year), MIN(COALESCE(t.from_year, s.year)), MAX(COALESCE(t.to_year, s.year))
-       FROM place_links l JOIN sentences s ON s.id = l.sentence_id
-       LEFT JOIN time_links tl ON tl.sentence_id = s.id
-       LEFT JOIN times t ON t.id = tl.time_id
-       WHERE l.place_id = places.id
-     )`,
+    `UPDATE places p SET
+       p.year = (SELECT MIN(s.year)
+         FROM place_links l JOIN sentences s ON s.id = l.sentence_id
+         WHERE l.place_id = p.id),
+       p.year_from = (SELECT MIN(COALESCE(t.from_year, s.year))
+         FROM place_links l JOIN sentences s ON s.id = l.sentence_id
+         LEFT JOIN time_links tl ON tl.sentence_id = s.id
+         LEFT JOIN times t ON t.id = tl.time_id
+         WHERE l.place_id = p.id),
+       p.year_to = (SELECT MAX(COALESCE(t.to_year, s.year))
+         FROM place_links l JOIN sentences s ON s.id = l.sentence_id
+         LEFT JOIN time_links tl ON tl.sentence_id = s.id
+         LEFT JOIN times t ON t.id = tl.time_id
+         WHERE l.place_id = p.id)`,
   ).run();
 
   const places = dbi.prepare('SELECT * FROM places ORDER BY count DESC').all();
   const out = [];
   for (const p of places) {
     const rows = dbi.prepare(
-      `SELECT s.seq, COALESCE(NULLIF(s.polished,''), s.statement) AS statement, s.year, s.time_label, s.status, s.created_at
+      `SELECT s.id, s.seq, COALESCE(NULLIF(s.polished,''), s.statement) AS statement, s.year, s.time_label, s.status, s.created_at
        FROM place_links l JOIN sentences s ON s.id = l.sentence_id
        WHERE l.place_id = ? ORDER BY (s.year IS NULL), s.year ASC, s.seq ASC`,
     ).all(p.id);
@@ -196,7 +203,7 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
       label: display,
       city: cityName,
       count: p.count,
-      memories: rows.map((r) => ({ seq: r.seq, statement: r.statement, year: r.year, status: r.status })),
+      memories: rows.map((r) => ({ id: r.id, seq: r.seq, statement: r.statement, year: r.year, status: r.status })),
       year,
       time_label: label,
       first_seq: rows[0]?.seq ?? 0,
@@ -207,7 +214,7 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
       approx,
       /* 这个地点的几条记忆也合成一句话（跟时间轴同一套缓存 timeline_notes）。
          没合过就是空串，前端退回逐条显示。 */
-      key: 'place:' + rows.map((r) => r.statement).slice().sort().join('|').slice(0, 400),
+      key: groupKey('place:', rows.map((r) => r.statement)),
       note: '',
       needNote: false,
     });
@@ -251,11 +258,24 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
     for (const sp of h.spurs) if (sp.name && !uniq.some((x) => x.name === sp.name)) uniq.push(sp);
     h.spurs = uniq;
     h.label = h.city || h.name;                        // 旗子上只写城市名
-    h.key = 'place:' + h.memories.map((m) => m.statement).slice().sort().join('|').slice(0, 400);
+    h.key = groupKey('place:', h.memories.map((m) => m.statement));
     h.note = getNote(h.key) || '';
     h.needNote = h.memories.length >= 2 && !h.note;
     // 同一面旗下的记忆按年份排一下，看着顺
     h.memories.sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || a.seq - b.seq);
+  }
+  /* 照片跟着记忆走：同一面旗旗下几条记忆的照片汇到一起，浮窗里直接显示 */
+  const idsForPhotos = [...new Set(merged.flatMap((h) => h.memories.map((m) => m.id)))];
+  const photoMap = photosForSentences(idsForPhotos);
+  for (const h of merged) {
+    const photos = [];
+    const seenPhoto = new Set();
+    for (const m of h.memories) {
+      for (const ph of (photoMap.get(m.id) || [])) {
+        if (!seenPhoto.has(ph.id)) { seenPhoto.add(ph.id); photos.push(ph); }
+      }
+    }
+    h.photos = photos;
   }
   merged.sort((a, b) => {
     if (a.year && b.year) return a.year - b.year || a.first_seq - b.first_seq;
@@ -265,87 +285,6 @@ export function footprints(dbi, { hometown = '', hometownCoord = null } = {}) {
   });
   merged.forEach((p, i) => { p.order = i + 1; });
   return merged;
-}
-
-/** 经纬度 → 平面坐标（墨卡托，够画中国地图用） */
-export function project(lng, lat, bbox, W, H, pad = 8) {
-  const merc = (y) => Math.log(Math.tan(Math.PI / 4 + (y * Math.PI) / 360));
-  const x0 = bbox[0];
-  const x1 = bbox[2];
-  const y0 = merc(bbox[3]);
-  const y1 = merc(bbox[1]);
-  const sx = (W - pad * 2) / (x1 - x0);
-  const sy = (H - pad * 2) / (y1 - y0);
-  const s = Math.min(sx, sy);
-  const ox = pad + ((W - pad * 2) - (x1 - x0) * s) / 2;
-  const oy = pad + ((H - pad * 2) - (y1 - y0) * s) / 2;
-  return [ox + (lng - x0) * s, oy + (merc(lat) - y0) * s];
-}
-
-/**
- * 解 echarts 压缩地图
- *
- * 那份 china.json 不是标准 GeoJSON：坐标是变长编码的字符串，
- *   前两个字符是起点（码点 - 64），之后每两个字符是一对增量，
- *   取值 0–63，小于 32 表示这一位是正数、否则是负数（减 64 还原）；
- *   最后除以 1024 换成经纬度，再叠加 encodeOffsets 给的基准。
- * 这一步在服务端做完，浏览器拿到的就是普通经纬度数组。
- */
-export function decodeEchartsMap(raw) {
-  if (!raw || !Array.isArray(raw.features)) return raw;
-  const features = raw.features.map((f) => {
-    const g = f.geometry || {};
-    if (!g.encodeOffsets) return f;              // 已经是普通坐标，原样返回
-    let coords = g.coordinates;
-    const isStr = (x) => typeof x === 'string';
-    // 把各种嵌套写法统一成 [[ring, ring], [ring, ring]]（多边形 → 环 → 点）
-    const polys = isStr(coords)
-      ? [[coords]]                                   // 直接就是一条环
-      : (isStr(coords[0]) ? [coords] : coords);      // [环,...] 还是 [多边形,...]
-    const outPolys = polys.map((poly, pi) => {
-      const rings = isStr(poly) ? [poly] : poly;
-      return rings.map((ring, ri) => {
-        if (!isStr(ring)) return ring;               // 已经是点数组
-        const off = ((g.encodeOffsets[pi] || [])[ri]) || [0, 0];
-        return decodeRing(ring, off[0], off[1]);
-      });
-    });
-    coords = outPolys;
-    return {
-      type: 'Feature',
-      properties: { ...(f.properties || {}) },
-      geometry: { type: 'MultiPolygon', coordinates: coords },
-    };
-  });
-  return { type: 'FeatureCollection', features };
-}
-
-/** 解一条环（ring）：返回 [[lng,lat], ...]；不合法的点直接丢掉 */
-function decodeRing(str, originX, originY) {
-  const pts = [];
-  const code = (ch) => (ch === undefined ? NaN : ch.charCodeAt(0) - 64);
-  const push = (x, y) => {
-    const lng = (x + originX) / 1024;
-    const lat = (y + originY) / 1024;
-    // 只接受落在地球上的点，编码串里偶尔有异常字符会把坐标带飞
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
-    if (lng < 70 || lng > 140 || lat < 3 || lat > 55) return;
-    pts.push([Number(lng.toFixed(4)), Number(lat.toFixed(4))]);
-  };
-  let x = code(str[0]);
-  let y = code(str[1]);
-  push(x, y);
-  for (let i = 2; i + 1 < str.length; i += 2) {
-    let dx = code(str[i]);
-    let dy = code(str[i + 1]);
-    if (!Number.isFinite(dx) || !Number.isFinite(dy)) break;
-    if (dx >= 32) dx -= 64;
-    if (dy >= 32) dy -= 64;
-    x += dx;
-    y += dy;
-    push(x, y);
-  }
-  return pts;
 }
 
 /** 求这份 GeoJSON 的经纬度包围盒

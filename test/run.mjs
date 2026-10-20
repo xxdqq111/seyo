@@ -16,8 +16,11 @@ import os from 'node:os';
 // 测试跑在临时目录里，绝不碰 data/ 里的真实数据
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'seyo-test-'));
 process.env.SEYO_DATA_DIR = TMP;
+/* MySQL 版：测试用独立账号库，别动真实账号的数据。需要先启动 MySQL。 */
+process.env.SEYO_MYSQL_ACCOUNT = process.env.SEYO_MYSQL_ACCOUNT || 'seyo_test';
 
-const { resetAll, stats, listSentences, openCandidates, search, DB_FILE, addSentence, addCandidate, updateSentence } = await import('../src/store.mjs');
+const { resetAll, stats, listSentences, openCandidates, search, DB_FILE, addSentence, updateSentence, addPhoto, saveMed, deleteMed, confirmMed } = await import('../src/store.mjs');
+const { medStatus } = await import('../src/meds.mjs');
 const { handleTurn, opening, distill, getPersona, setPersona, session } = await import('../src/engine.mjs');
 const { analyze, clean, simplify, splitClauses, askForms, bare } = await import('../src/text.mjs');
 
@@ -119,6 +122,28 @@ head('三 · 老人再提起 → 搜索主句库作答');
     ok(/挡车工/.test(r.reply), `  答出来了：${r.reply}`);
   }
 
+  // 记忆挂了照片 → 老人问到这件事时，照片一起"发出来"
+  {
+    const row = listSentences().find((s) => /挡车工/.test(s.statement));
+    if (!row) {
+      ok(false, '照片测试需要一个"挡车工"记忆');
+    } else {
+      addPhoto({ sentenceId: row.id, file: 'test.png', mime: 'image/png' });
+      // 用独立会话，别打乱 t1 后面的检索/兜底断言
+      const withPhoto = await handleTurn({ text: '我当挡车工那事儿你还记得吗？', sessionId: 't1-photo' });
+      ok(withPhoto.photos && withPhoto.photos.length === 1,
+        `★ 问到挂了照片的记忆 → 照片一起发出来（${withPhoto.photos ? withPhoto.photos.length : 0} 张）`);
+      ok(/^\/api\/photos\//.test((withPhoto.photos?.[0]?.url) || ''),
+        `  照片地址可用：${withPhoto.photos?.[0]?.url || '（无）'}`);
+      const missPhoto = await handleTurn({ text: '我小时候在哪个小学念书来着？', sessionId: 't1-photo-miss' });
+      ok(!missPhoto.photos || missPhoto.photos.length === 0, '  没查到的记忆不会乱发照片');
+      // 老人话里没提具体事，只问"有图片吗" —— 也要把照片发出来，而且不许说没有
+      const askPhoto = await handleTurn({ text: '有图片吗', sessionId: 't1-photo' });
+      ok(askPhoto.photos && askPhoto.photos.length >= 1, `★ 老人问"有图片吗" → 照片发出来（${askPhoto.photos ? askPhoto.photos.length : 0} 张）`);
+      ok(!/(啥都没有|没图片|没照片|没有图片|没有照片)/.test(askPhoto.reply), `  不许说"我啥都没有"：${askPhoto.reply}`);
+    }
+  }
+
   // 检索的中间结果要能看见
   const a = analyze('我以前是干啥工作的来着？');
   const hits = search('我以前是干啥工作的来着？', a);
@@ -159,6 +184,7 @@ head('五 · 老人短回答（"在北京""1950年"）不许死循环');
 {
   resetAll({ keepPersona: true });
   const sid = 'loop';
+  await opening({ sessionId: sid });                       // 第一次先自我介绍，再走正常开场
   const first = await opening({ sessionId: sid });          // 会问"您小时候是在哪儿长大的呀？"
   const r1 = await handleTurn({ text: '在北京', sessionId: sid });
   ok(r1.reply.length > 0, `答"在北京"有回应：${r1.reply}`);
@@ -626,6 +652,144 @@ head('十 · 整理入库 → 直接存档（不再请老人核对）');
 }
 
 /* ================================================================
+   吃药提醒：设定时间 → 快到点提醒 → 确认后停
+   ================================================================ */
+head('吃药提醒：设定时间 → 快到点提醒 → 确认后停');
+{
+  const now = new Date();
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const nearMidnight = (now.getHours() === 23 && now.getMinutes() >= 55) || (now.getHours() === 0 && now.getMinutes() < 5);
+  const dueAt = new Date(now.getTime() - 2 * 60000);
+  const soonAt = new Date(now.getTime() + 3 * 60000);
+
+  if (nearMidnight) {
+    ok(true, '（正好在零点附近，跳过"到点/快到点"的状态断言）');
+  } else {
+    const saved = saveMed({ name: '降压药', dose: '1 片', times: [hhmm(dueAt), hhmm(soonAt)], note: '饭后吃' });
+    ok(saved.ok && saved.med && saved.med.times.length === 2, '★ 能设定"每天几点吃什么药"（药名 / 剂量 / 多个时间点）');
+    const s1 = medStatus();
+    const dueItem = s1.items.find((i) => i.time === hhmm(dueAt));
+    const soonItem = s1.items.find((i) => i.time === hhmm(soonAt));
+    ok(dueItem && dueItem.state === 'due' && dueItem.minutes >= 1, `★ 过了点的这顿算"该吃了"（晚了 ${dueItem ? dueItem.minutes : '-'} 分钟）`);
+    ok(soonItem && soonItem.state === 'soon', '★ 10 分钟内的下一顿算"快到时间了"');
+    ok(s1.next && s1.next.medId === saved.med.id, `  下一顿排出来了（${s1.next ? s1.next.time + ' ' + s1.next.name : '无'}）`);
+
+    // 老人确认吃过那一顿 → 这顿不再算"该吃"，另一顿照旧
+    const done = confirmMed(saved.med.id, dueItem.slot);
+    ok(done && done.slot === dueItem.slot, '★ 老人确认"这顿吃过了"能记住');
+    const s2 = medStatus();
+    ok(s2.items.find((i) => i.slot === dueItem.slot).state === 'done', '★ 确认过的那顿不再提醒');
+    ok(s2.items.find((i) => i.slot === soonItem.slot).state === 'soon', '  别的顿数照常提醒');
+
+    // 时间写错不入库
+    const bad = saveMed({ name: '时间写错的药', times: ['25:99'] });
+    ok(!bad.ok, '时间格式不对（25:99）不会被收下');
+
+    deleteMed(saved.med.id);
+    ok(!medStatus().meds.some((m) => m.id === saved.med.id), '能删掉这个药的提醒');
+  }
+}
+
+/* ================================================================
+   记事本：说"5 分钟后提醒我关火" → 记下 → 到点 → 确认
+   ================================================================ */
+head('记事本：说"5 分钟后提醒我关火" → 记下 → 到点 → 确认');
+{
+  const { parseReminder } = await import('../src/text.mjs');
+  const { addReminder, listReminders, dueReminders, doneReminder, deleteReminder } = await import('../src/store.mjs');
+  const { handleTurn } = await import('../src/engine.mjs');
+
+  const cases = [
+    ['5分钟后提醒我关火', 5, '关火'],
+    ['五分钟后提醒我关火', 5, '关火'],
+    ['半个小时后提醒我关火', 30, '关火'],
+    ['一个小时后提醒我吃药', 60, '吃药'],
+    ['过10分钟提醒我喝水', 10, '喝水'],
+    ['提醒我5分钟后关火', 5, '关火'],
+    ['一刻钟后提醒我关火', 15, '关火'],
+  ];
+  for (const [text, min, what] of cases) {
+    const r = parseReminder(text);
+    ok(r && Math.abs(Math.round(r.delayMs / 60000) - min) <= 1 && r.text === what,
+      `「${text}」→ ${min} 分钟后提醒「${what}」`);
+  }
+  const abs = parseReminder('明天早上8点提醒我关火');
+  ok(abs && abs.kind === 'absolute' && abs.text === '关火' && abs.dueAt > Date.now(), '★ 也能认「明天早上 8 点提醒我关火」');
+  ok(parseReminder('今天天气不错') === null, '普通聊天不会被当成提醒');
+  ok(parseReminder('我记得5分钟后要关火') === null, '「我记得…」是回忆，不会误记成提醒');
+
+  // 入库 / 到点 / 确认 / 删除
+  const dueItem = addReminder({ text: '关火', dueAt: Date.now() - 1000 });
+  ok(dueItem && dueItem.text === '关火', '★ 提醒能存进库');
+  ok(dueReminders().some((x) => x.id === dueItem.id), '★ 到点后能查出来');
+  const done = doneReminder(dueItem.id);
+  ok(done && done.doneAt, '点「知道了」→ 标记完成');
+  ok(!dueReminders().some((x) => x.id === dueItem.id), '★ 确认过的提醒不再弹');
+
+  const later = addReminder({ text: '喝水', dueAt: Date.now() + 10 * 60000 });
+  ok(listReminders().some((x) => x.id === later.id && x.text === '喝水'), '记事本列出还没到点的提醒');
+  ok(deleteReminder(later.id), '能从记事本里删掉');
+
+  // 对话里直接说 → 引擎拦下来，不整理成往事
+  const r = await handleTurn({ text: '5分钟后提醒我关火', sessionId: 'rem-test' });
+  ok(r.strategy === 'reminder' && r.reply.includes('关火') && r.reply.includes('5 分钟后'),
+    `★ 对话里说就会记下并回复：「${r.reply}」`);
+  ok(r.reminder && r.reminder.dueAt > Date.now() + 4 * 60000, '提醒时间对得上');
+  ok(r.stored.created.length === 0, '★ 提醒不是往事，不进记忆库');
+  for (const x of listReminders()) deleteReminder(x.id);
+  ok(listReminders().length === 0, '清理测试提醒');
+}
+
+/* ================================================================
+   约 10% 的轮次：引导老人讲以前的事
+   ================================================================ */
+head('约 10% 的轮次引导老人讲以前的事');
+{
+  const { shouldInviteMemory, pickInviteTopic, INVITE_TOPICS } = await import('../src/engine.mjs');
+  const { buildMessages } = await import('../src/prompts.mjs');
+
+  ok(shouldInviteMemory({ rng: () => 0.05 }) === true, '★ 掷进 10% → 这一轮会引导旧事');
+  ok(shouldInviteMemory({ rng: () => 0.5 }) === false, '10% 以外 → 不引导');
+  ok(shouldInviteMemory({ companion: true, rng: () => 0.01 }) === false, '陪伴模式不引导（只陪着）');
+  ok(shouldInviteMemory({ request: true, rng: () => 0.01 }) === false, '请求句不引导（先办事）');
+  ok(shouldInviteMemory({ correction: { x: 1 }, rng: () => 0.01 }) === false, '改口时不引导');
+  ok(shouldInviteMemory({ fragment: true, rng: () => 0.01 }) === false, '补充细节时不引导');
+  ok(shouldInviteMemory({ healthHint: '说不舒服', rng: () => 0.01 }) === false, '身体不舒服不引导');
+  ok(shouldInviteMemory({ mood: 'low', rng: () => 0.01 }) === false, '情绪低落不引导');
+
+  // 引的是"新往事"的方向（小时候 / 上学 / 年轻时 / 成家…），不是库里的原话
+  ok(INVITE_TOPICS.length >= 8, `方向池够用（${INVITE_TOPICS.length} 个）`);
+  ok(INVITE_TOPICS.some((t) => /小时候/.test(t.ask)), '★ 有"小时候有什么好玩的"这种开放方向');
+  const rows = [
+    { statement: '我年轻时候在国棉三厂当挡车工', time_label: '青年时期' },
+    { statement: '我小时候住在城西的剪子巷', time_label: '童年' },
+  ];
+  const sess = { history: [], recentInvites: [] };
+  const picked = [pickInviteTopic(rows, sess), pickInviteTopic(rows, sess), pickInviteTopic(rows, sess)];
+  ok(picked.every((t) => t && t.ask && t.key), '能挑出一个方向当话头');
+  ok(new Set(picked.map((t) => t.key)).size === 3, `★ 方向不连着重复（${picked.map((t) => t.key).join(' / ')}）`);
+
+  // 已经讲得很多的方向，不优先再问
+  const heavy = [
+    { statement: '我小时候在胡同里玩，上小学那会儿老师……', time_label: '童年' },
+    { statement: '我小时候盼着过年', time_label: '童年' },
+  ];
+  ok(pickInviteTopic(heavy, { recentInvites: [] }).key !== 'child', '★ 已讲得多的方向排在后面');
+
+  const withInvite = buildMessages({
+    persona: getPersona(), confirmed: rows, text: '今天天气不错',
+    inviteTopic: '小时候有什么好玩的、最盼着干什么（玩什么、跟谁玩）',
+  }).map((m) => m.content).join('\n');
+  ok(withInvite.includes('顺带引他讲讲以前的事') && withInvite.includes('小时候有什么好玩的'),
+    '★ 提示词里带上引导方向');
+  ok(withInvite.includes('不是让你复述记忆清单'), '★ 明确"不是复述以前说过的话"');
+  const noInvite = buildMessages({ persona: getPersona(), confirmed: rows, text: '今天天气不错' })
+    .map((m) => m.content).join('\n');
+  ok(!noInvite.includes('顺带引他讲讲以前的事'), '没掷中的轮次，提示词里没有这段');
+}
+
+/* ================================================================
    收尾：把库里实际存了什么打出来
    ================================================================ */
 head('库里现在存了什么（这就是你要的"独立数据库"里的内容）');
@@ -641,6 +805,27 @@ head('库里现在存了什么（这就是你要的"独立数据库"里的内容
   console.log(`  数据库文件：${st.dbFile}`);
   const dump = (await import('../src/store.mjs')).dumpIndex();
   console.log(`  可读快照：${dump.file}`);
+}
+
+/* ================================================================
+   重置：记忆 / 照片 / 吃药记录一起清
+   ================================================================ */
+head('重置：记忆 / 照片 / 吃药记录一起清');
+{
+  const { recentPhotos, addReminder: addRem, listReminders: listRems } = await import('../src/store.mjs');
+  const rows = listSentences();
+  if (rows[0]) addPhoto({ sentenceId: rows[0].id, file: 'reset-test.png', mime: 'image/png' });
+  saveMed({ name: '重置测试药', dose: '1 片', times: ['08:00'] });
+  addRem({ text: '重置测试提醒', dueAt: Date.now() + 600000 });
+  ok(recentPhotos(10).length > 0, '重置前照片记录在库里');
+  ok(medStatus().meds.length > 0, '重置前吃药安排在库里');
+  ok(listRems().length > 0, '重置前记事本提醒在库里');
+
+  resetAll({ keepPersona: true });
+  ok(stats().sentences === 0, '重置把记忆清空');
+  ok(recentPhotos(10).length === 0, '★ 照片记录也一起清掉');
+  ok(medStatus().meds.length === 0, '★ 吃药安排/记录也一起清掉');
+  ok(listRems().length === 0, '★ 记事本提醒也一起清掉');
 }
 
 console.log('\n' + '─'.repeat(58));

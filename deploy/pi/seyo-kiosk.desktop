@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Seyo Kiosk
+Comment=Seyo elder kiosk
+Exec=/usr/bin/chromium --kiosk --ozone-platform=wayland --noerrdialogs --disable-infobars --disable-session-crashed-bubble --no-first-run --no-default-browser-check --password-store=basic --autoplay-policy=no-user-gesture-required http://127.0.0.1:3789/
+X-GNOME-Autostart-enabled=true

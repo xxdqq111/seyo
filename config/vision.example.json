@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "provider": "local",
+  "modelDir": "",
+  "ferPort": 3791
+}

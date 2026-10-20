@@ -33,75 +33,84 @@
       </span>
     </a>
     <nav class="nav-links">
-      <a class="nav-link on" href="/"><span class="ico">💬</span>对话</a>
-      <a class="nav-link" href="/family.html"><span class="ico">📖</span>查看端</a>
-      <!-- 设置收在右上角。摄像头、内部过程这些家人偶尔才动的东西放这里，
-           老人的主界面上就只剩"说话"这一件事。 -->
-      <button class="gear" id="gearBtn" aria-expanded="false" title="设置">⚙</button>
+      <a class="nav-link on" href="/">对话</a>
+      <a class="nav-link" href="/family.html">查看端</a>
+      <button class="nav-link" id="accountBtn" type="button" title="账号与设置" aria-label="账号与设置"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"></circle><path d="M4.5 20c.8-4 3.8-6.2 7.5-6.2s6.7 2.2 7.5 6.2"></path></svg></span></button>
     </nav>
   </div>
 </header>
 
-<!-- ============ 设置面板（右上角小角落） ============ -->
-<div class="settings" id="settings" hidden>
-  <div class="settings-head">
-    <b>设置</b>
-    <button class="settings-close" id="settingsClose" title="收起">✕</button>
-  </div>
-  <div class="settings-body">
-
-    <!-- 声音。跟"点一下让岁语出声"那个浮动按钮不是一回事：
-         那个是浏览器拦住了声音、要一次点击才解锁的一次性提示（已经改成自动解锁了）；
-         这个是**真正的声音开关** —— 关了就完全不出声，文字照样显示。 -->
-    <div class="set-block">
-      <div class="set-title">声音</div>
-      <p class="set-desc">岁语说话的时候，用电脑的声音念出来。<br>
-        不想听就关掉 —— 说的话还是会显示在屏幕上。</p>
-      <button id="soundBtn" class="switch wide on">🔊 开启声音</button>
-      <div class="set-note" id="soundNote">声音开着</div>
-
-      <!-- 用哪个引擎说话。
-           本机神经网络：音质好一档，但要先合成（等几百毫秒），吃 CPU。
-           系统语音：立刻出声，但音质硬（Windows 那几个老嗓音）。 -->
-      <div class="set-label">用什么念</div>
-      <select id="ttsSel" class="set-select">
-        <option value="local">本机神经网络（音质好，文字不出门）</option>
-        <option value="system">系统语音（立刻出声，音质一般）</option>
-      </select>
-      <div class="set-note" id="ttsNote"></div>
-
-      <!-- 岁语是"小孙子"，默认挑男声。但每台电脑装的中文嗓音不一样，
-           哪个听着顺耳只有耳朵知道 —— 所以列出来让人自己选。 -->
-      <div class="set-label">系统语音用哪个嗓音</div>
-      <select id="voiceSel" class="set-select"></select>
-      <button class="switch wide" id="voiceTry">听一下这个嗓音</button>
-      <div class="set-note" id="voiceNote"></div>
-    </div>
-
-    <div class="set-block">
-      <div class="set-title">摄像头</div>
-      <p class="set-desc">让岁语看您的表情，情绪不好时主动过来陪。<br>
-        画面<b>只在本机</b>识别，不上传任何地方。</p>
-      <button id="camBtn" class="switch wide">📷 摄像头：关</button>
-      <div class="set-note" id="camNote"></div>
-    </div>
-
-    <!-- 内部过程：给家人看的，"这句话被怎么理解、从哪查到、又存进了哪" -->
-    <section class="inside">
-      <button class="inside-head" id="insideBtn" aria-expanded="false">
-        <span class="inside-title">🔎 内部过程</span>
-        <span class="dim" id="insideHint">点开看：这句话被怎么理解、从哪里查到、又存进了哪里</span>
-        <span class="caret" id="caret">▸</span>
-      </button>
-      <div class="inside-body" id="insideBody" hidden>
-        <div class="col" id="colHeard"><h4>① 听懂这句</h4><p class="dim">还没有对话。</p></div>
-        <div class="col" id="colRecall"><h4>② 查主句库</h4><p class="dim">—</p></div>
-        <div class="col" id="colStore"><h4>③ 整理入库</h4><p class="dim">—</p></div>
-        <div class="col" id="colDb"><h4>④ 库里现在有什么</h4><p class="dim">—</p></div>
-        <div class="col" id="colWatch"><h4>⑤ 陪伴守望</h4><p class="dim">—</p></div>
+<!-- ============ 账号 / 设置（一个弹窗，两个页签） ============ -->
+<div class="account-modal" id="accountModal" hidden>
+  <div class="account-card">
+    <div class="account-head">
+      <div class="account-tabs" id="accountTabs">
+        <button data-atab="account" class="on">账号</button>
+        <button data-atab="settings">设置</button>
       </div>
-    </section>
+      <button class="account-close" id="accountClose" title="收起">×</button>
+    </div>
 
+    <!-- 账号页签 -->
+    <div class="account-body" id="atab-account">
+      <div class="account-who">当前登录：<b id="acctName">…</b></div>
+
+      <h3 class="acct-sub">修改密码</h3>
+      <form id="acctPwForm">
+        <label class="acct-label" for="acctOldPw">旧密码</label>
+        <input class="acct-input" id="acctOldPw" type="password" autocomplete="current-password" placeholder="输入现在的密码">
+        <label class="acct-label" for="acctNewPw">新密码</label>
+        <input class="acct-input" id="acctNewPw" type="password" autocomplete="new-password" placeholder="至少 6 位">
+        <label class="acct-label" for="acctNewPw2">再输一次新密码</label>
+        <input class="acct-input" id="acctNewPw2" type="password" autocomplete="new-password" placeholder="再输一遍">
+        <button class="acct-save" id="acctPwSave" type="submit">保存新密码</button>
+        <div class="acct-msg" id="acctPwMsg"></div>
+      </form>
+
+      <button id="logoutBtn" class="acct-save acct-logout">退出登录</button>
+    </div>
+
+    <!-- 设置页签：原来右上角的设置都搬到这里 -->
+    <div class="account-body" id="atab-settings" hidden>
+      <div class="set-block">
+        <div class="set-title">声音</div>
+        <button id="soundBtn" class="switch wide on">开启声音</button>
+        <div class="set-label">用什么念</div>
+        <select id="ttsSel" class="set-select">
+          <option value="local">神经网络</option>
+          <option value="system">系统语音</option>
+        </select>
+        <div class="set-label">嗓音</div>
+        <select id="voiceSel" class="set-select"></select>
+        <button class="switch wide" id="voiceTry">试听</button>
+      </div>
+
+      <div class="set-block">
+        <div class="set-title">摄像头</div>
+        <button id="camBtn" class="switch wide">摄像头：关</button>
+      </div>
+
+      <div class="set-block">
+        <div class="set-title">显示</div>
+        <button id="fullscreenBtn" class="switch wide on"><span class="fs-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></span><span id="fsLabel">全屏：开</span></button>
+        <div class="set-label">默认打开页面时自动全屏；浏览器不让自动全屏时，点一下页面就会进入。</div>
+      </div>
+
+      <section class="inside">
+        <button class="inside-head" id="insideBtn" aria-expanded="false">
+          <span class="inside-title">内部过程</span>
+          <span class="dim" id="insideHint">点开看：这句话被怎么理解、从哪里查到、又存进了哪里</span>
+          <span class="caret" id="caret">▸</span>
+        </button>
+        <div class="inside-body" id="insideBody" hidden>
+          <div class="col" id="colHeard"><h4>① 听懂这句</h4><p class="dim">还没有对话。</p></div>
+          <div class="col" id="colRecall"><h4>② 查主句库</h4><p class="dim">—</p></div>
+          <div class="col" id="colStore"><h4>③ 整理入库</h4><p class="dim">—</p></div>
+          <div class="col" id="colDb"><h4>④ 库里现在有什么</h4><p class="dim">—</p></div>
+          <div class="col" id="colWatch"><h4>⑤ 陪伴守望</h4><p class="dim">—</p></div>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -123,6 +132,9 @@
       </div>
     </div>
 
+    <!-- 今天的用药（没有设置就整条隐藏） -->
+    <div class="medbar" id="medBar" hidden></div>
+
     <section class="stage">
       <!-- 数字人 -->
       <div class="avatar-col">
@@ -130,7 +142,8 @@
           <div id="avatar"></div>
         </div>
         <div class="switches">
-          <button id="quietBtn" class="switch">🤝 安静模式</button>
+          <button id="notebookBtn" class="switch">记事本</button>
+          <button id="quietBtn" class="switch">安静模式</button>
         </div>
       </div>
 
@@ -138,7 +151,7 @@
       <div class="talk-col">
         <div class="bubbles" id="bubbles"></div>
                 <div class="say">
-          <button class="mic" id="micBtn"><span class="micIcon">🎤</span><span id="micText">按住说话</span></button>
+          <button class="mic" id="micBtn"><span id="micText">按住说话</span></button>
           <div class="line">
             <input id="input" class="field" type="text" autocomplete="off"
                    placeholder="也可以打字，比如：我年轻时候住哪儿来着？">
@@ -155,6 +168,66 @@
 <video id="cam" playsinline muted hidden></video>
 <canvas id="camCanvas" width="320" height="240" hidden></canvas>
 
+<!-- 吃药提醒（到点弹出来，没确认就一直提醒） -->
+<div class="med-remind" id="medRemind" hidden>
+  <div class="med-remind-card">
+    <div class="med-remind-main">
+      <div class="med-remind-title" id="medRemindTitle">该吃药了</div>
+      <div class="med-remind-text" id="medRemindText"></div>
+    </div>
+    <div class="med-remind-acts">
+      <button class="med-done" id="medDoneBtn">我吃过了</button>
+      <button class="med-snooze" id="medSnoozeBtn">10 分钟后再提醒</button>
+    </div>
+  </div>
+</div>
+
+<!-- 记事本：老人说"5 分钟后提醒我关火"，未到点的都记在这里 -->
+<div class="note-modal" id="noteModal" hidden>
+  <div class="note-card">
+    <div class="note-head">
+      <b>记事本</b>
+      <button class="note-close" id="noteClose" title="收起">×</button>
+    </div>
+    <div class="note-tip"></div>
+    <div class="note-list" id="noteList"></div>
+  </div>
+</div>
+
+<!-- 到点提醒：点「知道了」才算完 -->
+<div class="med-remind" id="noteRemind" hidden>
+  <div class="med-remind-card">
+    <div class="med-remind-main">
+      <div class="med-remind-title">到点提醒</div>
+      <div class="med-remind-text" id="noteRemindText"></div>
+      <div class="med-remind-sub" id="noteRemindSub"></div>
+    </div>
+    <div class="med-remind-acts">
+      <button class="med-done" id="noteDoneBtn">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- 第一次用 / 没填基本信息：老人端也弹出来问一下 -->
+<div class="firstuse" id="firstUse" hidden>
+  <div class="firstuse-card">
+    
+    <h2>先跟岁语说一声</h2>
+    <p>知道该怎么称呼您，岁语说话才自然；出生年份和老家还能帮您把以前的事对上。</p>
+    <label class="fu-label" for="fuCall">怎么称呼您</label>
+    <input class="fu-input" id="fuCall" placeholder="爷爷 / 奶奶">
+    <label class="fu-label" for="fuBirth">出生年份</label>
+    <input class="fu-input" id="fuBirth" inputmode="numeric" placeholder="比如 1948">
+    <label class="fu-label" for="fuHome">老家</label>
+    <input class="fu-input" id="fuHome" placeholder="比如 北京">
+    <div class="firstuse-acts">
+      <button class="fu-later" id="fuLater">以后再说</button>
+      <button class="fu-save" id="fuSave">保存</button>
+    </div>
+    <div class="fu-msg" id="fuMsg"></div>
+  </div>
+</div>
+
 <footer class="site-foot">
   <div class="wrap">
     <span>岁语 </span>
@@ -165,8 +238,12 @@
 <!-- 3D 数字人（VRM）。加载是异步的，app.js 会等它。
      下面 avatar.js 是 2D 版，两套接口一模一样 ——
      想切回 2D，把 app.js 里的 window.SeyoAvatar3D 换成 window.SeyoAvatar 就行。 -->
+<script src="/resetwatch.js"></script>
+<script src="/fullscreen.js"></script>
+<script src="/navframe.js"></script>
 <script type="module" src="/avatar3d.js"></script>
 <script src="/avatar.js"></script>
 <script src="/app.js"></script>
+<script src="/vkbd.js"></script>
 </body>
 </html>

@@ -22,6 +22,7 @@
  * 没配模型 / 调不通的时候（包括离线自检）还是走原来那套。
  * ========================================================================== */
 import { speak, llmConfig } from './llm.mjs';
+import { parseJsonArray } from './json.mjs';
 
 /** 从模型输出里取一个干净的字符串数组 */
 function strList(v, max = 8) {
@@ -170,10 +171,18 @@ ${hist}
    · 例：原话"3点就要起来了"
         → "凌晨三点就得起来备料"
 
+12. clauses —— 先把原话切成自然子句，再给**每个子句**单独抽实体。
+   · text：保留老人原话的用词，不改写、不合并、不美化，最多 6 句
+   · persons / places / events / times：规则同上，但只属于这个子句
+   · 没有实体就给空数组 []
+   · 例："我小时候在杭州长大，那时候穷，吃不饱"
+     → [{"text":"我小时候在杭州长大","persons":[],"places":["杭州"],"events":[],"times":[{"raw":"小时候","label":"童年","year":null}]},
+        {"text":"那时候穷，吃不饱","persons":[],"places":[],"events":[],"times":[{"raw":"那时候","label":"那时候","year":null}]}]
+
 【输出格式】
 严格只输出一个**合法 JSON**，键和字符串都要加双引号。不要解释、不要代码块。
 
-{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
+{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"clauses":[{"text":"我年轻时候在国棉三厂当挡车工","persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]}],"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
 
   return [
     { role: 'system', content: system },
@@ -197,7 +206,7 @@ export async function understand({ persona, text = '', history = [] }) {
 
   const out = await speak(buildUnderstandMessages({ persona, text: raw, history }), {
     temperature: 0.1,        // 判断任务，别发挥
-    maxTokens: 320,
+    maxTokens: 600,
   });
   if (out?.error) return null;
 
@@ -229,6 +238,34 @@ export async function understand({ persona, text = '', history = [] }) {
     }
   }
 
+  const normTimes = (src) => (Array.isArray(src) ? src : [])
+    .filter((x) => x && (x.label || x.raw))
+    .slice(0, 4)
+    .map((x) => {
+      const y = Number(x.year);
+      const ok = Number.isFinite(y) && y >= 1900 && y <= new Date().getFullYear();
+      return {
+        raw: String(x.raw || x.label).trim().slice(0, 20),
+        label: String(x.label || x.raw).trim().slice(0, 20),
+        year: ok ? Math.round(y) : null,
+        kind: ok ? 'abs' : 'era',
+      };
+    });
+
+  const clauses = Array.isArray(o.clauses)
+    ? o.clauses.map((x) => {
+      if (typeof x === 'string') return { text: x.trim().slice(0, 100), persons: [], places: [], events: [], times: [] };
+      if (!x || typeof x !== 'object') return null;
+      return {
+        text: String(x.text || '').trim().slice(0, 100),
+        persons: strList(x.persons),
+        places: strList(x.places),
+        events: strList(x.events),
+        times: normTimes(x.times),
+      };
+    }).filter((x) => x && x.text).slice(0, 6)
+    : [];
+
   return {
     intent,
     // 改口本身不是记忆 —— 哪怕它讲得像个陈述句
@@ -245,19 +282,10 @@ export async function understand({ persona, text = '', history = [] }) {
       persons: strList(o.entities && o.entities.persons),
       places: strList(o.entities && o.entities.places),
       events: strList(o.entities && o.entities.events),
-      times: Array.isArray(o.entities && o.entities.times)
-        ? o.entities.times.filter((x) => x && (x.label || x.raw)).slice(0, 3).map((x) => {
-          const y = Number(x.year);
-          const ok = Number.isFinite(y) && y >= 1900 && y <= new Date().getFullYear();
-          return {
-            raw: String(x.raw || x.label).trim().slice(0, 20),
-            label: String(x.label || x.raw).trim().slice(0, 20),
-            year: ok ? Math.round(y) : null,
-            kind: ok ? 'abs' : 'era',
-          };
-        })
-        : [],
+      times: normTimes(o.entities && o.entities.times),
     },
+    /* 切句也由模型做：每个子句带自己的实体，避免把整句实体硬塞给每一句 */
+    clauses,
     statement: String(o.statement || '').trim().slice(0, 60),
     scope: ['major', 'detail', 'none'].includes(String(o.scope)) ? String(o.scope) : 'major',
     polished: String(o.polished || '').trim().slice(0, 80),
@@ -296,26 +324,8 @@ ${list}
   ], { temperature: 0.3, maxTokens: 900 });
   if (out?.error) return [];
 
-  const s = String(out.text || '');
-  const a = s.indexOf('[');
-  const b = s.lastIndexOf(']');
-  if (a < 0 || b <= a) return [];
-  let arr = null;
-  try { arr = JSON.parse(s.slice(a, b + 1)); } catch {
-    const fixed = s.slice(a, b + 1)
-      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
-      .replace(/(:\s*)([^\s"'{[\],}][^,}\]]*)/g, (m, pre, raw) => {
-        const v = String(raw).trim();
-        if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
-        return pre + JSON.stringify(v || '');
-      })
-      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
-         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
-      .replace(/:\s*([,}\]])/g, ':""$1')
-      .replace(/,\s*([\]}])/g, '$1');
-    try { arr = JSON.parse(fixed); } catch { return []; }
-  }
-  if (!Array.isArray(arr)) return [];
+  const arr = parseJsonArray(out.text);
+  if (!arr) return [];
 
   const out2 = [];
   for (const o of arr) {
@@ -345,8 +355,8 @@ export async function narrateGroups({ persona = {}, groups = [] } = {}) {
     return '第 ' + (i + 1) + ' 段（' + g.label + '）\n' + lines;
   }).join('\n\n');
 
-  const system = `你帮${call}整理回忆录。下面每一段里，是他讲的**同一个时期的几件事**，
-请把每段合成**一到两句通顺的话**，像小传，不要流水账。
+  const system = `你帮${call}整理回忆录。下面每一段里，是他讲的**互相关联的几件事**
+（可能是同一段时间，也可能是同一个地方）。请把每段合成**一到两句通顺的话**，像小传，不要流水账。
 
 【规矩】
 · 第一人称"我"
@@ -368,26 +378,8 @@ ${blocks}
   ], { temperature: 0.35, maxTokens: 1200 });
   if (out?.error) return [];
 
-  const s = String(out.text || '');
-  const a = s.indexOf('[');
-  const b = s.lastIndexOf(']');
-  if (a < 0 || b <= a) return [];
-  let arr = null;
-  try { arr = JSON.parse(s.slice(a, b + 1)); } catch {
-    const fixed = s.slice(a, b + 1)
-      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
-      .replace(/(:\s*)([^\s"'{[\],}][^,}\]]*)/g, (m, pre, rawV) => {
-        const v = String(rawV).trim();
-        if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
-        return pre + JSON.stringify(v || '');
-      })
-      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
-         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
-      .replace(/:\s*([,}\]])/g, ':""$1')
-      .replace(/,\s*([\]}])/g, '$1');
-    try { arr = JSON.parse(fixed); } catch { return []; }
-  }
-  if (!Array.isArray(arr)) return [];
+  const arr = parseJsonArray(out.text);
+  if (!arr) return [];
 
   const res = [];
   for (const o of arr) {
@@ -433,27 +425,8 @@ ${list}
   ], { temperature: 0.1, maxTokens: 600 });
   if (out?.error) return [];
 
-  const s = String(out.text || '');
-  const a = s.indexOf('[');
-  const b = s.lastIndexOf(']');
-  if (a < 0 || b <= a) return [];
-  let arr = null;
-  try { arr = JSON.parse(s.slice(a, b + 1)); } catch {
-    const fixed = s.slice(a, b + 1)
-      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
-      .replace(/(:\s*)([^\s"'{[\],}][^,}\]]*)/g, (m, pre, rawV) => {
-        const v = String(rawV).trim();
-        if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
-        if (/^(true|false)$/i.test(v)) return pre + v.toLowerCase();
-        return pre + JSON.stringify(v || '');
-      })
-      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
-         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
-      .replace(/:\s*([,}\]])/g, ':""$1')
-      .replace(/,\s*([\]}])/g, '$1');
-    try { arr = JSON.parse(fixed); } catch { return []; }
-  }
-  if (!Array.isArray(arr)) return [];
+  const arr = parseJsonArray(out.text);
+  if (!arr) return [];
 
   const res = [];
   for (const o of arr) {
@@ -507,27 +480,8 @@ ${list}
   ], { temperature: 0.1, maxTokens: 900 });
   if (out?.error) return [];
 
-  const s = String(out.text || '');
-  const a = s.indexOf('[');
-  const b = s.lastIndexOf(']');
-  if (a < 0 || b <= a) return [];
-  let arr = null;
-  try { arr = JSON.parse(s.slice(a, b + 1)); } catch {
-    const fixed = s.slice(a, b + 1)
-      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
-      .replace(/(:\s*)([^\s"'{[\],}][^,}\]]*)/g, (m, pre, rawV) => {
-        const v = String(rawV).trim();
-        if (/^-?\d+(\.\d+)?$/.test(v)) return pre + v;
-        if (/^(true|false)$/i.test(v)) return pre + v.toLowerCase();
-        return pre + JSON.stringify(v || '');
-      })
-      /* 空值（city: 后面直接逗号）和尾逗号 —— 模型判不出时就这么写，
-         上面那条正则要求至少一个字符，匹配不到，留着就不是合法 JSON。 */
-      .replace(/:\s*([,}\]])/g, ':""$1')
-      .replace(/,\s*([\]}])/g, '$1');
-    try { arr = JSON.parse(fixed); } catch { return []; }
-  }
-  if (!Array.isArray(arr)) return [];
+  const arr = parseJsonArray(out.text);
+  if (!arr) return [];
 
   const res = [];
   for (const o of arr) {
@@ -541,4 +495,138 @@ ${list}
     });
   }
   return res;
+}
+
+/**
+ * 老人是不是在确认"把刚才那句回给孩子"。
+ * 这一步专门交给模型判断，避免"就这样子回"被当成普通闲聊、只嘴上说回了却没真发。
+ * 返回 { send, text }；模型不可用/输出不合法时返回 null，由调用方用正则兜底。
+ */
+export async function judgeFamilyReply({ persona = {}, text = '', history = [], draft = '' } = {}) {
+  if (!llmConfig().available || !draft) return null;
+  const call = persona.elder_call || '爷爷';
+  const system = `你是岁语的意图判断器，只做判断，不聊天。
+
+背景：孩子给${call}发了消息，岁语刚才拟了一句要回给孩子的草稿：
+「${draft}」
+
+现在${call}又说了一句话。请判断他是不是在**同意/确认把上面这句草稿发给孩子**。
+- 是（例如"就这样子回""行，发给他吧""可以，就这么说"）→ {"send":true,"text":"最终要发的那句话"}
+- 不是（例如他在说别的事、否定、改口）→ {"send":false,"text":""}
+- 如果他在确认但顺手改了措辞，text 用他改后的说法。
+只输出一个合法 JSON 对象，不要解释。`;
+  try {
+    const out = await speak([
+      { role: 'system', content: system },
+      { role: 'user', content: `${call}刚说：「${text}」\n只输出 JSON。` },
+    ], { temperature: 0, maxTokens: 160 });
+    if (out?.error || !out?.text) return null;
+    const m = String(out.text).match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    // 模型经常把键/字符串写成 JS 字面量（{send:true,text:...}），用项目里同一套宽松修复
+    const arr = parseJsonArray('[' + m[0] + ']');
+    const j = arr && arr[0];
+    if (!j) return null;
+    const send = j.send === true || String(j.send).toLowerCase() === 'true';
+    const say = String(j.text || draft).trim().slice(0, 300);
+    return { send, text: say || draft };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 老人直接下指令："那给他回一个你好" / "回他一句我挺好"。
+ * 让模型判断这是不是"现在真的要给孩子发一条消息"，并提取内容。
+ * 返回 { send, text }；不可用时返回 null，由调用方兜底。
+ */
+export async function judgeFamilyDirectSend({ persona = {}, text = '', family = [] } = {}) {
+  if (!llmConfig().available) return null;
+  const call = persona.elder_call || '爷爷';
+  const recent = (Array.isArray(family) ? family : []).slice(-3).map((m) => {
+    if (m.kind === 'like') return '孩子给当天的聊天点了个赞';
+    if (m.kind === 'summary_reply') return `孩子回复当天总结：${m.text}`;
+    return `孩子：${m.text}`;
+  }).join('\n') || '（暂无）';
+  const system = `你是岁语的意图判断器，只做判断，不聊天。
+
+背景：${call}在和岁语说话，最近孩子发来的消息：
+${recent}
+
+请判断${call}这句话是不是在**直接让你现在给孩子发一条消息**。
+- 是（例如"那给他回一个你好""回他一句我挺好""给小陈发个你好"）→ {"send":true,"text":"要发给孩子的原话","to":"收信人的名字或小名"}
+- 不是（只是聊天、回忆、问孩子有没有发消息、说以前回过什么）→ {"send":false,"text":"","to":""}
+提取 text 时只留真正要发的内容，不要带"就说""给他回"这些指令词。
+提取 to 时：老人明确叫了名字/小名（如"小陈""老二""大宝"）就写名字；只说"他/她/孩子/儿子/女儿"就写空字符串。
+只输出一个合法 JSON 对象，不要解释。`;
+  try {
+    const out = await speak([
+      { role: 'system', content: system },
+      { role: 'user', content: `${call}说：「${text}」\n只输出 JSON。` },
+    ], { temperature: 0, maxTokens: 180 });
+    if (out?.error || !out?.text) return null;
+    const m = String(out.text).match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    const arr = parseJsonArray('[' + m[0] + ']');
+    const j = arr && arr[0];
+    if (!j) return null;
+    const send = j.send === true || String(j.send).toLowerCase() === 'true';
+    const say = String(j.text || '').trim().slice(0, 300);
+    let to = String(j.to || '').trim().slice(0, 20);
+    if (/^(他|她|孩子|儿子|女儿|家人|娃)$/.test(to)) to = '';
+    return { send: send && !!say, text: say, to };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 人物实体归并：模型判断名单里哪些叫法其实是同一个人。
+ * 例：["小陈","儿子"] + 记忆"小陈就是我儿子" → [["小陈","儿子"]]
+ * 返回数组的数组；模型不可用/不确定时返回空数组（不强行合并）。
+ */
+export async function judgePeopleAliases({ people = [], sentences = [] } = {}) {
+  if (!llmConfig().available) return [];
+  const names = (Array.isArray(people) ? people : []).map((x) => String(x)).filter(Boolean).slice(0, 60);
+  if (names.length < 2) return [];
+  const mem = (Array.isArray(sentences) ? sentences : []).map((x) => `- ${x}`).slice(0, 60).join('\n');
+  const system = `你只做人物实体判断，不聊天。
+
+人物名单：
+${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}
+
+记忆摘录：
+${mem || '（无）'}
+
+判断名单里哪些叫法其实是**同一个人**。特别注意：
+- "小陈就是我儿子" → "小陈"和"儿子"是同一个人
+- "老张是我师傅" → "老张"和"师傅"是同一个人
+- 只是泛称，没有明确"是谁"的证据时，不要合并
+- 一个人可以是多个称呼，但不要因为都姓陈就合并
+
+只输出一个合法 JSON 数组，每项是一组同义叫法：
+[["小陈","儿子"]]
+没有可合并的就输出 []。不要输出别的字。`;
+  try {
+    const out = await speak([
+      { role: 'system', content: system },
+      { role: 'user', content: '只输出 JSON 数组。' },
+    ], { temperature: 0, maxTokens: 300 });
+    if (out?.error || !out?.text) return [];
+    let arr = parseJsonArray(out.text);
+    if (!arr) {
+      // 模型常输出 [[小陈,儿子]]，字符串没引号 —— 直接把内层括号拆开
+      arr = [];
+      for (const m of String(out.text).matchAll(/\[([^[\]]+)\]/g)) {
+        const group = m[1].split(/[,，、]/).map((x) => x.replace(/["'“”\s]/g, '').trim()).filter(Boolean);
+        if (group.length > 1) arr.push(group);
+      }
+    }
+    const allowed = new Set(names);
+    return arr
+      .map((g) => (Array.isArray(g) ? g : []).map((x) => String(x)).filter((x) => allowed.has(x)))
+      .filter((g) => g.length > 1);
+  } catch {
+    return [];
+  }
 }

@@ -65,50 +65,53 @@ try {
 
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true })).result?.value;
 
-  console.log('  设置面板：');
-  chk(await ev(`document.getElementById('settings').hidden === true`), '一开始是收起的（不挡老人）');
-  chk(await ev(`!!document.getElementById('gearBtn')`), '右上角有齿轮');
+  console.log('  账号 / 设置弹窗：');
+  chk(await ev(`document.getElementById('accountModal').hidden === true`), '一开始是收起的（不挡老人）');
+  chk(await ev(`!document.getElementById('gearBtn')`), '旧的右上角设置入口已去掉');
 
   // 主界面上不该再有摄像头和内部过程
   const strayCam = await ev(`(() => { const b = document.getElementById('camBtn');
-      return b ? !document.getElementById('settings').contains(b) : false; })()`);
-  chk(strayCam === false, '摄像头按钮在设置里，不在主界面上');
+      return b ? !document.getElementById('accountModal').contains(b) : false; })()`);
+  chk(strayCam === false, '摄像头按钮在设置页签里，不在主界面上');
   const strayInside = await ev(`(() => { const b = document.getElementById('insideBtn');
-      return b ? !document.getElementById('settings').contains(b) : false; })()`);
-  chk(strayInside === false, '内部过程在设置里，不在主界面上');
+      return b ? !document.getElementById('accountModal').contains(b) : false; })()`);
+  chk(strayInside === false, '内部过程在设置页签里，不在主界面上');
 
-  await ev(`document.getElementById('gearBtn').click()`);
+  await ev(`document.getElementById('accountBtn').click()`);
   await sleep(500);
-  chk(await ev(`document.getElementById('settings').hidden === false`), '点齿轮 → 打开');
-  chk(await ev(`document.getElementById('gearBtn').getAttribute('aria-expanded') === 'true'`), '齿轮状态跟着变');
+  chk(await ev(`document.getElementById('accountModal').hidden === false`), '点「账号」→ 打开弹窗');
+  chk(await ev(`document.getElementById('atab-account').hidden === false && document.getElementById('atab-settings').hidden === true`), '默认落在「账号」页签');
+  chk(await ev(`document.getElementById('acctName').textContent.length > 0`), '显示当前用户名');
 
-  await ev(`document.getElementById('settingsClose').click()`);
+  await ev(`document.querySelector('#accountTabs button[data-atab="settings"]').click()`);
   await sleep(300);
-  chk(await ev(`document.getElementById('settings').hidden === true`), '点 ✕ → 收起');
+  chk(await ev(`document.getElementById('atab-settings').hidden === false && document.getElementById('atab-account').hidden === true`), '点「设置」→ 设置页签');
 
-  await ev(`document.getElementById('gearBtn').click()`);
+  await ev(`document.getElementById('accountClose').click()`);
   await sleep(300);
-  await ev(`document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
-  await sleep(300);
-  chk(await ev(`document.getElementById('settings').hidden === true`), '点面板外面 → 收起');
+  chk(await ev(`document.getElementById('accountModal').hidden === true`), '点 ✕ → 收起');
 
-  await ev(`document.getElementById('gearBtn').click()`);
+  await ev(`document.getElementById('accountBtn').click()`);
+  await sleep(300);
+  await ev(`document.getElementById('accountModal').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+  await sleep(300);
+  chk(await ev(`document.getElementById('accountModal').hidden === true`), '点弹窗外面 → 收起');
+
+  await ev(`document.getElementById('accountBtn').click()`);
   await sleep(300);
   await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
   await sleep(300);
-  chk(await ev(`document.getElementById('settings').hidden === true`), '按 Esc → 收起');
+  chk(await ev(`document.getElementById('accountModal').hidden === true`), '按 Esc → 收起');
 
   console.log('\n  摄像头默认打开：');
   // 等自动开摄像头的定时器跑完
   await sleep(4000);
   const cam = await ev(`JSON.stringify({
     on: !!window.__camProbe, text: document.getElementById('camBtn').textContent,
-    note: document.getElementById('camNote').textContent,
     ls: localStorage.getItem('seyo.camera'),
   })`);
   const c = JSON.parse(cam);
   chk(c.text.includes('开') && !c.text.includes('关'), `摄像头自动开了（"${c.text}"）`);
-  console.log(`      说明：${c.note}`);
 
   console.log(`\n  ${bad === 0 ? '\x1b[32m全部通过\x1b[0m' : `\x1b[31m失败 ${bad} 项\x1b[0m`}`);
 } finally {

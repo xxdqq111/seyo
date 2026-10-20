@@ -1,0 +1,5 @@
+# 可选：摄像头表情识别（FER）
+# 树莓派 / 低内存设备不建议安装
+torch
+torchvision
+Pillow

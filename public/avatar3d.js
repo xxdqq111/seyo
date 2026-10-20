@@ -121,7 +121,7 @@ async function init() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(s0.w, s0.h, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  // ⚠️ 不要开色调映射。
+  // 不要开色调映射。
   // 之前用了 ACESFilmic，结果肤色和衣服全被去饱和，看着**发灰**。
   // VRM 用的是 MToon 材质，本身就有卡通明暗分层，再压一道只会变脏。
   renderer.toneMapping = THREE.NoToneMapping;

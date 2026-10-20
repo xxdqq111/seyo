@@ -534,13 +534,6 @@ details.tl-more .tl-items li { font-size: var(--fs-xs); color: var(--dim); margi
   border-radius: 50%;
   background: var(--brand-line);
 }
-.place-pop-basis {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--line);
-  font-size: var(--fs-xs);
-  color: var(--dim-2, #a8a19a);
-}
 .place-pop-x {
   position: absolute;
   right: 12px;
@@ -557,8 +550,7 @@ details.tl-more .tl-items li { font-size: var(--fs-xs); color: var(--dim); margi
 }
 .place-pop-x:hover { color: var(--brand); border-color: var(--brand-line); }
 
-/* ---------- 头部操作按钮 + 基本信息弹窗 ---------- */
-.head-acts { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+/* ---------- 基本信息 / 账号弹窗 ---------- */
 .mini.danger { color: #a8381c; border-color: #eccfc4; }
 .mini.danger:hover { background: #fff0ec; border-color: #d8a892; }
 .mini:disabled { opacity: .55; cursor: default; }
@@ -608,7 +600,7 @@ details.tl-more .tl-items li { font-size: var(--fs-xs); color: var(--dim); margi
 .modal-acts .mini.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
 .modal-acts .mini.primary:hover { filter: brightness(.94); }
 
-/* 记忆库表格里的「✎ 改标签」 */
+/* 记忆库表格里的「改标签」 */
 .tag-btn { margin-top: 6px; font-size: 12px; padding: 3px 9px; min-height: 0; }
 
 /* ---------- 陪伴守望状态条：暂时隐藏 ----------
@@ -616,13 +608,56 @@ details.tl-more .tl-items li { font-size: var(--fs-xs); color: var(--dim); margi
    只是不在网页上显示。以后要用，把这一段删掉就恢复。 */
 #watch { display: none !important; }
 
-/* 地点浮窗：先给一句合成的，下面再列原条目 */
+/* 地点浮窗：只放整理过的那一句（年份行和原话列表都不要） */
 .place-pop-note {
   font-size: var(--fs-sm);
   line-height: 1.75;
-  margin: 0 0 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px dashed var(--line);
+  margin: 0 0 6px;
 }
-.place-pop-under { border-top: 1px dashed var(--line); padding-top: 8px; }
-.place-pop-under li { font-size: var(--fs-xs); color: var(--dim); }
+
+/* ---------- 记忆配图（时间轴卡片 / 地图浮窗） ---------- */
+.photo-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.photo-cell { position: relative; display: inline-block; flex: 0 0 auto; }
+.photo-cell img { width: 92px; height: 92px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; background: #f3efe7; }
+.photo-strip.big .photo-cell img { width: 118px; height: 118px; }
+.photo-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: #fff; color: var(--dim); font-size: 11px; line-height: 1; cursor: pointer; }
+.photo-del:hover { color: var(--danger); border-color: var(--danger-line); }
+.photo-add { min-height: 34px; padding: 0 12px; border: 1px dashed var(--line-2); border-radius: 10px; background: var(--panel); color: var(--dim); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
+.photo-add:hover { color: var(--brand); border-color: var(--brand-line); }
+.place-pop .photo-strip { margin-top: 12px; }
+
+/* ---------- 吃药提醒（家人端设置） ---------- */
+.lib-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+.lib-foot .mini { display: inline-flex; align-items: center; text-decoration: none; }
+.row-acts { white-space: nowrap; }
+.row-acts .mini { margin: 2px 4px 2px 0; }
+.pill.gold { background: #fbf1d9; color: #8a6a1f; border-color: #ecd9ab; }
+.pill.red  { background: #fdeeea; color: #a8381c; border-color: #f0c4b4; }
+
+.med-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.med-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: #fffdf8;
+}
+.med-row .med-row-main { flex: 1; font-size: 15px; line-height: 1.55; }
+.med-row b { color: var(--ink); }
+.med-row .med-row-times { color: var(--brand); font-weight: 600; }
+.med-row .med-row-note { color: var(--dim); font-size: 13px; }
+
+.med-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.med-input {
+  min-height: 40px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  font: inherit; font-size: 14px; background: #fff; color: var(--ink);
+  flex: 1 1 200px; min-width: 180px;
+}
+
+.med-today-row {
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px;
+  margin: 8px 0; background: #fffdf8;
+}
+.med-today-time { font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; }
+.med-today-name { flex: 1 1 200px; font-size: 15px; }
+

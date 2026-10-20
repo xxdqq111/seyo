@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, DATA_DIR, log } from './util.mjs';
+import { probePython, pythonProbeError, serviceHealth } from './python.mjs';
 
 const SERVICE = path.join(ROOT, 'model', 'tts_service.py');
 const LOG_FILE = path.join(DATA_DIR, 'tts.log');
@@ -53,65 +54,17 @@ let proc = null;
 let starting = null;
 let lastError = '';
 
-/** 候选 Python：能 import sherpa_onnx 的那个 */
-export function pythonCandidates(configured = '') {
-  const list = [];
-  if (configured) list.push(configured);
-  list.push(
-    process.env.SEYO_PYTHON || '',
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
-    'python',
-    'python3',
-  );
-  return [...new Set(list.filter(Boolean))];
-}
-
-export function probePython(configured = '') {
-  if (pythonBin) return Promise.resolve(pythonBin);
-  const cands = pythonCandidates(configured);
-  return new Promise((resolve) => {
-    let i = 0;
-    const next = () => {
-      if (i >= cands.length) {
-        lastError = '找不到装了 sherpa-onnx 的 Python（pip install sherpa-onnx）';
-        resolve(null);
-        return;
-      }
-      const bin = cands[i++];
-      let done = false;
-      let p;
-      try {
-        p = spawn(bin, ['-c', 'import sherpa_onnx;print("ok")'], { stdio: ['ignore', 'pipe', 'pipe'] });
-      } catch { next(); return; }
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        try { p.kill(); } catch { /* ignore */ }
-        if (ok) { pythonBin = bin; log(`本地语音合成：用 ${bin}`); resolve(bin); }
-        else next();
-      };
-      const timer = setTimeout(() => finish(false), 25000);
-      p.stdout.on('data', () => {});
-      p.on('error', () => finish(false));
-      p.on('exit', (code) => finish(code === 0));
-    };
-    next();
-  });
+/** 找一个能 import sherpa_onnx 的 Python（探测结果缓存） */
+async function findPython(configured = '') {
+  const bin = await probePython({ configured, imports: ['sherpa_onnx'], label: '本地语音合成', hint: '（pip install sherpa-onnx）', timeoutMs: 25000 });
+  if (bin) pythonBin = bin;
+  else lastError = pythonProbeError(['sherpa_onnx']) || '找不到装了 sherpa-onnx 的 Python';
+  return bin;
 }
 
 export function isRunning() { return Boolean(proc && !proc.killed); }
 
-export async function ttsHealth(port, timeoutMs = 2500) {
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), timeoutMs);
-    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: ctl.signal });
-    clearTimeout(t);
-    return r.ok ? await r.json() : null;
-  } catch { return null; }
-}
+export const ttsHealth = serviceHealth;
 
 /**
  * 确保服务在跑。第一次调用会启动（加载 115 MB 的模型，要几秒），之后直接用。
@@ -136,7 +89,7 @@ export async function ensureTts(cfg = ttsConfig()) {
   starting = (async () => {
     try {
       if (!isRunning()) {
-        const bin = await probePython(py);
+        const bin = await findPython(py);
         if (!bin) return { ok: false, error: lastError || '找不到装了 sherpa-onnx 的 Python' };
 
         fs.mkdirSync(DATA_DIR, { recursive: true });

@@ -11,23 +11,27 @@
  */
 import {
   analyze, bare, splitClauses, askForms, isNonContent, mildMood, keywords as kwOf, simplify,
-  healthSigns, isRequest,
+  healthSigns, isRequest, parseReminder,
 } from './text.mjs';
 import { contentQuestion, contentRemark, matchReaction } from './reactions.mjs';
-import { understand } from './understand.mjs';
+import { understand, judgeFamilyReply, judgeFamilyDirectSend, judgePeopleAliases } from './understand.mjs';
 import { log } from './util.mjs';
-import { llmConfig } from './llm.mjs';
+import { llmConfig, speak as llmSpeak } from './llm.mjs';
 import { reply as agentReply, opening as agentOpening, checkIn as agentCheckIn, guessTimes as agentGuessTimes } from './agent.mjs';
 import {
   due as watchDue, markSpoken as watchMarkSpoken, claimSpoken as watchClaim, releaseSpoken as watchRelease, noteSpokenText as watchNoteText,
   noteActivity as watchActivity,
   setMood as watchSetMood, snapshot as watchSnapshot, configure as watchConfigure, clearLog as watchClearLog,
+  resetConfig as watchResetConfig,
   notePoll, ackSpoken, pendingId as watchPendingId, noteOpening as watchNoteOpening,
 } from './watch.mjs';
 import {
   addSentence, search, markAsked,
   logUtterance, bumpTopic, listTopics, stats, getMeta, setMeta, listSentences, deleteSentence,
-  recentOpenings, pushOpening, updateSentence, getSentence,
+  recentOpenings, pushOpening, updateSentence, getSentence, photosForSentences, recentPhotos,
+  addReminder, listReminders,
+  addFamilyMessage, listFamilyMessages, dayContent, getDailySummary, saveDailySummary,
+  listPeople, mergePersonRows,
 } from './store.mjs';
 
 /* ================================================================== *
@@ -65,6 +69,12 @@ export function setPersona(patch = {}) {
 const sessions = new Map();
 const COMPANION_MS = 10 * 60 * 1000;
 
+/** 重置账号数据时一起清掉服务端内存里的对话上下文。
+    否则 DB 已经清空，页面刷新仍会从旧 session.history 把上一轮对话显示出来。 */
+export function clearSessions() {
+  sessions.clear();
+}
+
 export function session(id = 'default') {
   if (!sessions.has(id)) {
     sessions.set(id, {
@@ -98,9 +108,83 @@ export function remember(sess, role, text) {
   if (sess.history.length > 16) sess.history.shift();
 }
 
+/** 页面刷新后恢复最近的对话（只给 UI 显示用，不再触发一次开场白） */
+export function recentHistory(sessionId = 'default', limit = 10) {
+  const sess = session(sessionId);
+  const n = Math.min(50, Math.max(1, Number(limit) || 10));
+  return sess.history.slice(-n).map((h) => ({ role: h.role, text: h.text, at: h.at }));
+}
+
+/** 把模型草稿里多余的“就说/给您回/标点”剥掉，只留真正要发的那句 */
+function cleanFamilyDraft(text) {
+  let t = String(text || '').trim();
+  t = t.replace(/^[。，,、:：;；\s]+/, '');
+  t = t.replace(/^(?:就说|这么说|您就说|那我说|我回一句|回一句)[：:，,]?\s*/, '');
+  t = t.replace(/[。；;]+$/, '').trim();
+  return t.slice(0, 300);
+}
+
+/** 把孩子发来的话补进老人端会话历史：刷新页面后还能看到，不会被“念过就丢”。 */
+
+/** 老人确认过的孩子名字/小名。第一次用某个名字发消息时先问一句。 */
+function knownChildNames() {
+  try {
+    const v = JSON.parse(getMeta('family_children', '[]'));
+    return Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : [];
+  } catch { return []; }
+}
+function isKnownChild(name) {
+  const n = String(name || '').trim();
+  if (!n) return true;              // "他/孩子"这种不用确认
+  return knownChildNames().some((x) => x === n);
+}
+function rememberChildName(name) {
+  const n = String(name || '').trim();
+  if (!n) return;
+  const list = knownChildNames();
+  if (!list.includes(n)) list.push(n);
+  try { setMeta('family_children', JSON.stringify(list)); } catch { /* ignore */ }
+}
+
+export function rememberFamilyMessage(sessionId, m = {}) {
+  if (!m || !m.text) return;
+  const sess = session(sessionId);
+  let text;
+  if (m.kind === 'like') text = '孩子给您今天的聊天点了个赞。';
+  else if (m.kind === 'summary_reply') text = `孩子回复了您今天的聊天：${m.text}`;
+  else text = `孩子给您发消息了：${m.text}`;
+  remember(sess, 'agent', text);
+}
+
+/**
+ * 让 AI 看人物名单和记忆，把"小陈 / 儿子"这种同一个人合并掉。
+ * 在家人端加载人物图谱前调用；合并结果直接写库，刷新就不再多出重复卡片。
+ */
+export async function resolvePeopleAliases() {
+  try {
+    const people = listPeople();
+    if (people.length < 2) return 0;
+    const names = people.map((p) => p.name).filter(Boolean);
+    const sentences = listSentences({ limit: 120 }).map((s) => s.statement).filter(Boolean);
+    const groups = await judgePeopleAliases({ people: names, sentences });
+    let merged = 0;
+    for (const group of groups) {
+      const rows = group.map((name) => people.find((p) => p.name === name)).filter(Boolean);
+      if (rows.length < 2) continue;
+      const generic = /^(儿子|女儿|闺女|老伴|爱人|妻子|丈夫|媳妇|女婿|孙子|孙女|外孙|外孙女|哥哥|姐姐|弟弟|妹妹|师傅|大夫|老师)$/;
+      const keep = rows.find((r) => !generic.test(r.name)) || rows[0];
+      for (const r of rows) {
+        if (r.id !== keep.id && mergePersonRows(keep.id, r.id)) merged += 1;
+      }
+    }
+    return merged;
+  } catch {
+    return 0;
+  }
+}
+
 /** 新建"正在讲的这件事" */
-export function newStory(id, statement, a = {}) {
-  return {
+export function newStory(id, statement, a = {}) {  return {
     id,
     statement: statement || '',
     seed: '',                 // 开场式问题的前半句（"我小时候在"）
@@ -119,6 +203,71 @@ export function pushStory(sess, story) {
   sess.recentStories = (sess.recentStories || []).filter((s) => s.id !== story.id && s.statement !== story.statement);
   sess.recentStories.push({ id: story.id, statement: story.statement });
   if (sess.recentStories.length > 5) sess.recentStories.shift();
+}
+
+/* ------------------------------------------------------------------ *
+ * 引导老人讲以前的事
+ * ------------------------------------------------------------------
+ * 不是每一轮都问 —— 那样像查户口。只在**大约 10%** 的轮次里，
+ * 挑一个"他没怎么讲过的人生阶段/老话题"，用开放的问法请他讲。
+ *
+ * ⚠️ 这里**不是**把库里的原话再问一遍（"您上回说…"那种招人烦），
+ * 而是像"您小时候有什么好玩的事儿吗"这样，引他说**新**的往事。
+ * 已归档的记忆只用来避开"已经讲得很多的方向"——哪块讲得少就先问哪块。
+ *
+ * 不引导的情况：
+ *   · 陪伴模式（他情绪不高，只陪着）
+ *   · 请求句 / 改口 / 补充细节（这轮在办别的事）
+ *   · 身体不舒服（先关心身体）
+ *   · 情绪是 low / uneasy
+ * ------------------------------------------------------------------ */
+export const INVITE_MEMORY_RATE = 0.1;
+export const INVITE_TOPICS = [
+  { key: 'child', ask: '小时候有什么好玩的、最盼着干什么（玩什么、跟谁玩）', cover: ['小时候', '童年', '小学', '玩', '盼'] },
+  { key: 'school', ask: '上学那会儿的事（学校、老师、同学、上学路上）', cover: ['上学', '学校', '老师', '同学', '念书'] },
+  { key: 'youth', ask: '年轻时候头一份工作、刚挣钱那阵子的事', cover: ['年轻', '上班', '工作', '学徒', '挣', '厂'] },
+  { key: 'love', ask: '跟老伴怎么认识的、结婚那阵子的讲究', cover: ['结婚', '老伴', '对象', '嫁', '娶'] },
+  { key: 'kids', ask: '孩子/儿女小时候的一件趣事', cover: ['孩子', '儿子', '女儿', '闺女', '抱'] },
+  { key: 'friends', ask: '以前一起干活、一起玩的那些老伙伴', cover: ['朋友', '工友', '邻居', '同事'] },
+  { key: 'festival', ask: '以前过年过节怎么过、有什么讲究', cover: ['过年', '春节', '端午', '中秋', '节'] },
+  { key: 'food', ask: '以前最常吃、最舍不得吃的东西，是谁做的', cover: ['吃', '饭', '菜', '粮', '肉'] },
+  { key: 'fun', ask: '闲下来都玩什么（牌、棋、戏、听书、遛弯）', cover: ['玩', '下棋', '钓鱼', '听戏', '戏', '牌', '唱'] },
+  { key: 'home', ask: '老家那时候什么样、街坊邻居都是谁', cover: ['老家', '住在', '村', '胡同', '巷', '院'] },
+];
+
+export function shouldInviteMemory({
+  companion = false, request = false, correction = null, fragment = false,
+  healthHint = '', mood = 'normal', rng = Math.random,
+} = {}) {
+  if (companion || request || correction || fragment || healthHint) return false;
+  if (mood === 'low' || mood === 'uneasy') return false;
+  return Number(rng()) < INVITE_MEMORY_RATE;
+}
+
+/**
+ * 挑一个"他讲得少、最近也没问过"的方向。
+ * @param {Array} rows 已归档记忆（只用来算哪个方向已经讲得很多）
+ * @param {object} sess 会话（记最近引导过哪些方向，避免重复）
+ * @returns {{key:string, ask:string}|null}
+ */
+export function pickInviteTopic(rows = [], sess = null) {
+  const used = new Set((sess && sess.recentInvites) || []);
+  const hay = (rows || [])
+    .map((r) => `${String((r && r.statement) || '')} ${String((r && r.time_label) || '')}`)
+    .join(' ');
+  const score = (t) => t.cover.reduce((n, k) => n + (hay.includes(k) ? 1 : 0), 0);
+
+  let pool = INVITE_TOPICS.filter((t) => !used.has(t.key));
+  if (!pool.length) {                       // 全问过一遍了，从头再来
+    pool = INVITE_TOPICS.slice();
+    if (sess) sess.recentInvites = [];
+  }
+  const scored = pool.map((t) => ({ t, s: score(t) }));
+  const min = Math.min(...scored.map((x) => x.s));
+  const candidates = scored.filter((x) => x.s === min).map((x) => x.t);
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  if (sess) sess.recentInvites = [...(sess.recentInvites || []), pick.key].slice(-8);
+  return pick || null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -347,23 +496,28 @@ export async function judgeTimes(ids, { sessionId = 'default', history = [] } = 
  * 把老人讲的一段话整理成若干条主句，存进独立数据库
  * @returns {{created:Array, merged:Array, skipped:number}}
  */
-export function distill(rawText, { sessionId = 'default', status = 'confirmed', source = '', birthYear = null, polished = '', lifeEvent = null, entities = null } = {}) {
+export function distill(rawText, { sessionId = 'default', status = 'confirmed', source = '', birthYear = null, polished = '', lifeEvent = null, entities = null, clauses = null } = {}) {
   const created = [];
   const merged = [];
   let skipped = 0;
 
-  for (const clause of splitClauses(rawText)) {
-    const a = analyze(clause);
+  const list = Array.isArray(clauses) && clauses.length
+    ? clauses
+    : splitClauses(rawText).map((text) => ({ text }));
+  for (const clause of list) {
+    const clauseText = typeof clause === 'string' ? clause : String(clause.text || '');
+    if (!clauseText.trim()) continue;
+    const a = analyze(clauseText);
     /* 实体优先用**大模型抽的** —— 正则抽出来常是碎片：
          "我小时候在杭州长大，那时候穷" → 人物"时候穷"、地点"杭州长大"、年份 1853
-       注意：模型给了**空数组**也要照用（它是在说"这里没有人名"），
-       只有它根本没给 entities 时才退回 analyze 的正则结果 ——
-       否则 "时候穷" 这种碎片会漏过来。 */
-    if (entities && typeof entities === 'object') {
-      if (Array.isArray(entities.persons)) a.persons = entities.persons;
-      if (Array.isArray(entities.places)) a.places = entities.places;
-      if (Array.isArray(entities.events)) a.events = entities.events;
-      if (Array.isArray(entities.times) && entities.times.length) a.times = entities.times;
+       模型按子句给了实体，就用子句的；否则退回整句 entities；再否则用正则。 */
+    const cl = clause && typeof clause === 'object' && !Array.isArray(clause) ? clause : null;
+    const src = cl || (entities && typeof entities === 'object' ? entities : null);
+    if (src) {
+      if (Array.isArray(src.persons)) a.persons = src.persons;
+      if (Array.isArray(src.places)) a.places = src.places;
+      if (Array.isArray(src.events)) a.events = src.events;
+      if (Array.isArray(src.times) && src.times.length) a.times = src.times;
     }
     const statement = bare(a.statement);
     if (statement.length < 4) { skipped += 1; continue; }
@@ -604,6 +758,68 @@ function brief(s = '', n = 30) {
  * 一轮对话
  * ================================================================== */
 
+/**
+ * 生成"今天"给家人看的对话总结。
+ * 已生成过就直接用；没有数据就给一句温和的占位，不编造内容。
+ */
+/** AI 总结收尾：一段整体文字，去掉多余换行/空格，但不按角色硬分三段 */
+function tidySummary(text = '') {
+  return String(text)
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([，。；！？、])\s*/g, '$1')
+    .trim();
+}
+
+export async function buildDailySummary(day) {
+  const hit = getDailySummary(day);
+  // 旧版是“老人：/岁语：/用户：”三段式；遇到这种就重新生成
+  const oldRoleLayout = (t) => /(?:^|[。；！？\s])(?:老人|岁语|用户)[：:]/.test(String(t));
+  if (hit && hit.text && hit.text !== '[object Object]' && !oldRoleLayout(hit.text)) {
+    return hit;
+  }
+  const c = dayContent(day);
+  const familyLines = (c.familyMessages || []).map((m) => {
+    if (m.kind === 'like') return '给当天的聊天点了个赞';
+    if (m.kind === 'summary_reply') return `回复了当天的总结：${m.text}`;
+    return `${m.sender === 'elder' ? '老人发给家人' : '给老人发消息'}：${m.text}`;
+  });
+  if (!c.turns && !c.sentences.length && !familyLines.length) {
+    return saveDailySummary(day, '老人今天还没有和岁语聊天；岁语会等老人开口；用户（家人）今天也还没有互动。');
+  }
+  let text = '';
+  if (llmConfig().available) {
+    const material = [
+      c.sentences.length ? `今天记下的记忆：\n- ${c.sentences.slice(0, 12).join('\n- ')}` : '',
+      c.elderLines.length ? `老人今天说过的原话：\n- ${c.elderLines.slice(-16).join('\n- ')}` : '',
+      c.agentLines.length ? `岁语今天的回复：\n- ${c.agentLines.slice(-10).join('\n- ')}` : '',
+      familyLines.length ? `用户（家人）今天的互动：\n- ${familyLines.slice(-12).join('\n- ')}` : '',
+    ].filter(Boolean).join('\n\n');
+    try {
+      const out = await llmSpeak([
+        {
+          role: 'system',
+          content: '你是岁语，在给老人的孩子写当天对话总结。\n'
+            + '要求：\n'
+            + '1. 写成**一段整体的话**，不要分三段，不要用“老人：/岁语：/用户：”这种标签，不要列表。\n'
+            + '2. **只挑今天最重要的 2～4 件事**，不要把所有对话都写进去；寒暄、重复、无关紧要的话省略。\n'
+            + '3. 谁做的事要写清楚：用“老人”“岁语”“用户（家人）”来区分，不许用“他/你/我”混着指，避免分不清是谁。\n'
+            + '4. 只根据给出的内容写，不编造；没有重要的事就写“今天比较平静”。\n'
+            + '5. 2～4 句中文即可。',
+        },
+        { role: 'user', content: material || '今天只有很少的互动。' },
+      ], { temperature: 0.3, maxTokens: 320 });
+      if (out && out.text) text = String(out.text).trim();
+    } catch { /* 模型不行就走下面的兜底 */ }
+  }
+  if (!text) {
+    const elder = c.sentences.slice(0, 2).join('；') || c.elderLines.slice(-3).join('；') || '今天没有特别的事';
+    const sey = c.agentLines.slice(-2).join('；') || '陪着老人聊了聊';
+    const user = familyLines.slice(-2).join('；') || '今天还没有互动';
+    text = `老人今天${elder}；岁语${sey}；用户（家人）${user}。`;
+  }
+  return saveDailySummary(day, tidySummary(text).slice(0, 700));
+}
+
 export async function handleTurn({ text, sessionId = 'default' } = {}) {
   const raw = String(text || '').trim();
   if (!raw) throw new Error('内容为空');
@@ -613,13 +829,20 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
   const sess = session(sessionId);
   sess.turns += 1;
 
+  // 把最近孩子发来的消息带给模型 —— 否则老人问“孩子有没有发消息”时，岁语会装看不见
+  let familyRecent = [];
+  try {
+    familyRecent = listFamilyMessages(100).filter((m) => m.sender === 'family').slice(-5);
+  } catch { /* 表还没建好就先空着 */ }
+
   logUtterance({ session: sessionId, role: 'elder', text: raw });
   let a = analyze(raw);
 
   // 情绪：本句信号 + 会话累计（看脸色知进退）
   sess.moodScore = Math.max(0, sess.moodScore * 0.7 + a.mood.score + mildMood(raw) * 0.7);
   if (a.mood.level === 'low' || sess.moodScore >= 2) sess.companionUntil = Date.now() + COMPANION_MS;
-  const companion = Date.now() < sess.companionUntil;
+  const companion0 = Date.now() < sess.companionUntil;
+  let companion = companion0;
 
   // 告诉守望模块：①有人说话了 ②这轮文字里的情绪
   watchActivity();
@@ -650,6 +873,226 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
     }
   }
 
+  /* ==================================================================
+     孩子的话：老人说"我要和孩子说话" → 岁语问一句，下一句带给孩子
+     ------------------------------------------------------------------
+     老人端不增加任何按钮，全部靠说。孩子发来的消息由老人端轮询后交给岁语念。
+     ================================================================== */
+  const familyReply = (reply, strategy = 'family-message') => {
+    logUtterance({ session: sessionId, role: 'agent', text: reply });
+    remember(sess, 'elder', raw);
+    remember(sess, 'agent', reply);
+    return {
+      reply,
+      mode: companion ? 'companion' : 'normal',
+      by: 'rules',
+      llm: null,
+      strategy,
+      photos: [],
+      invite: '',
+      context: {
+        story: '',
+        recent: sess.history.slice(-6).map((h) => `${h.role === 'elder' ? '老人' : '岁语'}：${h.text}`),
+        searchedWith: '（和孩子说话）',
+        askedSlot: '',
+      },
+      heard: {
+        cleaned: a.cleaned,
+        statement: '',
+        intent: 'command',
+        persons: [],
+        places: [],
+        times: [],
+        events: [],
+        keywords: kwOf(raw).slice(0, 12),
+        mood: { level: a.mood.level, hits: a.mood.hits, score: Number(sess.moodScore.toFixed(2)) },
+      },
+      recall: [],
+      stored: { created: [], merged: [], skipped: 0, story: null },
+      stats: stats(),
+    };
+  };
+
+  /* 老人直接问"孩子有没有发消息/孩子说什么"：按真实消息回答，别让模型装看不见 */
+  const asksFamilyMessage = /(?:孩子|儿子|女儿|闺女|家人).{0,8}(?:有没有|发消息|发.{0,2}消息|联系|找我)|有没有.{0,5}(?:消息|人找)/;
+  if (asksFamilyMessage.test(raw) && !sess.familyTalk) {
+    const last = familyRecent[familyRecent.length - 1];
+    let reply;
+    if (!last) {
+      reply = '孩子这会儿还没给您发新消息。您想孩子了，就说「我要和孩子说话」，我帮您带个话。';
+    } else if (last.kind === 'like') {
+      reply = '孩子给您今天的聊天点了个赞。';
+    } else if (last.kind === 'summary_reply') {
+      reply = `孩子回复您今天的聊天：${last.text}`;
+    } else {
+      reply = `孩子给您发消息了：${last.text}`;
+    }
+    return familyReply(reply, 'family-recent');
+  }
+
+  /* 第一次用某个名字/小名发消息：先确认"这是不是您的孩子" */
+  if (sess.pendingFamilySend) {
+    const p = sess.pendingFamilySend;
+    if (Date.now() - Number(p.at || 0) > 5 * 60 * 1000) {
+      delete sess.pendingFamilySend;
+    } else if (/^(是|对|嗯|是的|对呀|对的对的|没错|是孩子|是我孩子|是我的孩子|就是)/.test(raw)) {
+      rememberChildName(p.name);
+      addFamilyMessage({ sender: 'elder', text: p.text });
+      delete sess.pendingFamilySend;
+      return familyReply(`好，我记住了，${p.name}是您的孩子。已经发给孩子了：${p.text}`, 'family-message-sent');
+    } else if (/^(不是|不|不对|错了|不是孩子|发错)/.test(raw)) {
+      delete sess.pendingFamilySend;
+      return familyReply('好，那我不发了。您想发给谁，再跟我说。', 'family-confirm-child');
+    } else {
+      return familyReply(`${p.name}是您的孩子吗？我确认一下，确认后就把「${p.text}」发过去。`, 'family-confirm-child');
+    }
+  }
+
+  /* 老人直接下指令："那给他回一个你好"。
+     是不是要发、发什么，交给 AI 判断并提取；模型不可用时才用正则兜底。 */
+  const directCandidate = String(raw).length <= 60
+    && /(?:给|和|跟|对).{1,12}(?:发|回|说|告诉|转告)|(?:告诉|转告|发给|回给).{1,12}|(?:发|回|说).{0,10}(?:他|她|孩子|儿子|女儿|家人|消息|一句|个)/.test(raw);
+  const inferTo = (text) => {
+    const m = String(text || '').match(/(?:给|和|跟|对)\s*([\u4e00-\u9fa5A-Za-z0-9]{1,10})\s*(?:发|回|说|告诉)/);
+    const n = m ? m[1].trim() : '';
+    return /^(他|她|孩子|儿子|女儿|家人|娃)$/.test(n) ? '' : n;
+  };
+  if (directCandidate) {
+    const judged = await judgeFamilyDirectSend({ persona, text: raw, family: familyRecent });
+    if (judged && judged.send && judged.text) {
+      const msg = cleanFamilyDraft(judged.text);
+      const to = String(judged.to || '').trim() || inferTo(raw);
+      if (msg) {
+        if (to && !isKnownChild(to)) {
+          sess.pendingFamilySend = { name: to, text: msg, at: Date.now() };
+          return familyReply(`${to}是您的孩子吗？我确认一下，确认后就把「${msg}」发过去。`, 'family-confirm-child');
+        }
+        addFamilyMessage({ sender: 'elder', text: msg });
+        delete sess.familyTalk;
+        return familyReply(`好，已经发给${to || '孩子'}了：${msg}`, 'family-message-sent');
+      }
+    } else if (!judged) {
+      // 模型不可用：从"回他一句 XXX / 给他回一个 XXX"里取出要发的内容
+      const m = String(raw).match(/(?:回|发|说|告诉)(?:给)?(?:他|她|孩子|儿子|女儿|家人)?(?:一个|一句|个|句)?\s*[：:]?\s*(.+)$/);
+      const msg = m ? cleanFamilyDraft(m[1]) : '';
+      const to = inferTo(raw);
+      if (msg && !/^(消息|电话|个|句)$/.test(msg)) {
+        if (to && !isKnownChild(to)) {
+          sess.pendingFamilySend = { name: to, text: msg, at: Date.now() };
+          return familyReply(`${to}是您的孩子吗？我确认一下，确认后就把「${msg}」发过去。`, 'family-confirm-child');
+        }
+        addFamilyMessage({ sender: 'elder', text: msg });
+        delete sess.familyTalk;
+        return familyReply(`好，已经发给${to || '孩子'}了：${msg}`, 'family-message-sent');
+      }
+    }
+  }
+
+  /* 已经进入"您想跟孩子说什么"：这一句就是内容。
+     但如果老人说的是"给他发个你好"这种带指令的话，只发"你好"，别把指令整句发出去。 */
+  if (sess.familyTalk) {
+    const expired = Date.now() - Number(sess.familyTalk.at || 0) > 10 * 60 * 1000;
+    if (expired || /^(算了|不说了|不聊了|不发了|取消|没事了)/.test(raw)) {
+      delete sess.familyTalk;
+      return familyReply('好，那先不发了。想孩子了随时跟我说。', 'family-cancel');
+    }
+    let content = raw;
+    const m = String(raw).match(/^(?:那|就|你|请)?\s*(?:给|和|跟|对)?\s*(?:他|她|孩子|儿子|女儿|家人)?\s*(?:发|回|说)(?:个|一个|一句|一句儿|条|个话)?\s*[：:，,]?\s*(.+)$/);
+    if (m) content = cleanFamilyDraft(m[1]);
+    addFamilyMessage({ sender: 'elder', text: content });
+    delete sess.familyTalk;
+    return familyReply(`好，我把您的话带给孩子了${content !== raw ? `：${content}` : ''}。`, 'family-message-sent');
+  }
+
+  /* 老人说一句短话（"好""行""就这样子回"）：是不是在确认把上一轮草稿发出去，
+     完全交给 AI 判断。正则只在模型不可用时兜底。 */
+  const explicitConfirm = /^(?:就这样子回|就这么回|就回这个|就按这个回|就这么说|发吧|回吧|帮我回)/;
+  const fallbackConfirm = /^(?:就这样子回|就这么回|就回这个|就按这个回|就这么说|发吧|回吧|帮我回|好|行|嗯|对|可以|好吧|行吧)/;
+  let sendDraft = false;
+  let sendText = '';
+  const draft = sess.familyDraft;
+  if (draft && draft.text && Date.now() - Number(draft.at || 0) < 10 * 60 * 1000 && String(raw).length <= 30) {
+    const judged = await judgeFamilyReply({
+      persona,
+      text: raw,
+      history: sess.history.slice(-8),
+      draft: draft.text,
+    });
+    if (judged) {
+      if (judged.send) {
+        sendDraft = true;
+        sendText = cleanFamilyDraft(judged.text || draft.text);
+      }
+    } else if (fallbackConfirm.test(raw)) {
+      // 模型不可用时的兜底；AI 明确判断"不是"时不走这里
+      sendDraft = true;
+      sendText = cleanFamilyDraft(draft.text);
+    }
+  }
+  if (sendDraft) {
+    addFamilyMessage({ sender: 'elder', text: sendText });
+    delete sess.familyDraft;
+    return familyReply(`好，已经发给孩子了：${sendText}`, 'family-message-sent');
+  }
+  if (!sendDraft && explicitConfirm.test(raw) && !draft) {
+    sess.familyTalk = { at: Date.now() };
+    return familyReply('好，您想跟孩子说什么？慢慢说，我给您带过去。', 'family-ask');
+  }
+
+  const wantFamily = /(?:和|跟|给|找|对|同).{0,6}(?:孩子|儿子|女儿|闺女|家人|娃).{0,8}(?:说话|说几句|说两句|聊聊|聊聊天|留话|带话|带个话|发消息|讲几句|回一句|回个话|回消息)|(?:要|想).{0,4}(?:和|跟).{0,4}(?:孩子|儿子|女儿|闺女|家人).{0,8}(?:说话|聊|留话|发消息)|(?:回|回复)(?:一下|个|句)?(?:孩子|儿子|女儿|闺女|家人|他|她)|(?:给|和|跟|对).{0,4}(?:孩子|儿子|女儿|闺女|家人).{0,6}(?:回|回复|回一句|回个话)/;
+  if (wantFamily.test(raw)) {
+    sess.familyTalk = { at: Date.now() };
+    return familyReply('好，您想跟孩子说什么？慢慢说，我给您带过去。', 'family-ask');
+  }
+
+  /* ==================================================================
+     记事本 / 到点提醒：老人说"5 分钟后提醒我关火"
+     ------------------------------------------------------------------
+     这是"让他办一件事"，不是往事 —— 不整理入库，直接记下并回一句。
+     计时放在服务端：页面关掉、切走都不影响，回来一刷新就能看到到点提示。
+     ================================================================== */
+  const remindReq = parseReminder(raw);
+  if (remindReq) {
+    const item = addReminder({ text: remindReq.text, dueAt: remindReq.dueAt, session: sessionId });
+    if (item) {
+      const content = item.text === '提醒您一下' ? '' : item.text;
+      const reply = `${call}，好，${remindReq.timeText}我提醒您${content || '一下'}。`;
+      logUtterance({ session: sessionId, role: 'agent', text: reply });
+      remember(sess, 'elder', raw);
+      remember(sess, 'agent', reply);
+      return {
+        reply,
+        mode: companion ? 'companion' : 'normal',
+        by: 'rules',
+        llm: null,
+        strategy: 'reminder',
+        photos: [],
+        invite: '',
+        reminder: item,
+        context: {
+          story: '',
+          recent: sess.history.slice(-6).map((h) => `${h.role === 'elder' ? '老人' : '岁语'}：${h.text}`),
+          searchedWith: '（记事本）',
+          askedSlot: '',
+        },
+        heard: {
+          cleaned: a.cleaned,
+          statement: '',
+          intent: 'command',
+          persons: [],
+          places: [],
+          times: remindReq.kind === 'absolute' ? [{ raw: remindReq.timeText, label: remindReq.timeText }] : [],
+          events: [],
+          keywords: kwOf(raw).slice(0, 12),
+          mood: { level: a.mood.level, hits: a.mood.hits, score: Number(sess.moodScore.toFixed(2)) },
+        },
+        recall: [],
+        stored: { created: [], merged: [], skipped: 0, story: null },
+        stats: stats(),
+      };
+    }
+  }
+
   /* ① 核对流程已砍掉。
         原来这里会判断老人上一轮是点头还是否认，再决定那条记忆转正还是退回。
         现在不问了 —— 老人说什么就直接入库，见下面的 distill。 */
@@ -673,6 +1116,31 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
      现在一次模型调用全判完，正则只在**没配模型 / 调不通**时兜底（含离线自检）。
      ================================================================== */
   const said = await understand({ persona, text: raw, history: sess.history.slice(-6) });
+
+  /* 切句 / 情绪 / 人物·地点·时间·事件：以模型判断为准。
+     模型不可用时 said=null，才继续用上面 analyze() 的正则结果。 */
+  if (said) {
+    if (said.mood) {
+      const level = said.mood === 'low' ? 'low'
+        : said.mood === 'uneasy' ? 'uneasy'
+          : said.mood === 'warm' ? 'happy' : 'normal';
+      const score = level === 'low' ? 2 : level === 'uneasy' ? 1 : 0;
+      a.mood = { level, score, hits: said.health || [] };
+      watchSetMood({ level, score, note: (said.health || []).join('/'), source: 'text' });
+      if (level === 'low' || level === 'uneasy') {
+        sess.moodScore = Math.max(sess.moodScore, score);
+        sess.companionUntil = Date.now() + COMPANION_MS;
+      }
+      companion = Date.now() < sess.companionUntil;
+    }
+    if (said.entities) {
+      if (Array.isArray(said.entities.persons)) a.persons = said.entities.persons;
+      if (Array.isArray(said.entities.places)) a.places = said.entities.places;
+      if (Array.isArray(said.entities.events)) a.events = said.entities.events;
+      if (Array.isArray(said.entities.times)) a.times = said.entities.times;
+    }
+    if (Array.isArray(said.clauses) && said.clauses.length) a.clauses = said.clauses;
+  }
 
   /* 请求句不是记忆 —— 是他这会儿的需求。不排除的话会被并进上一条正在讲的事，把正经记忆改坏。 */
   const request = said ? said.request : isRequest(a.cleaned);
@@ -778,6 +1246,7 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
   let out = compose({ persona, a, hits, sess, companion });
   let text2 = out.text;
   let usedLLM = null;
+  let inviteTopic = '';      // 这一轮顺带引导的方向（大多数轮次是空的）
 
   if (!fragmentAbsorbed && llmConfig().available) {
     // 全部记忆都给模型 —— 不再只喂检索命中的那几条，
@@ -785,11 +1254,28 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
     const rows = listSentences({ limit: 400 });
     // 核对流程砍掉之后就没有"待确认"这一档了 —— 老人说的直接入库，全是已确认
     const confirmed = rows.slice(-160);
+    /* 哪几条记忆有照片 —— 告诉模型，老人才问"有照片吗"时它不会说"我啥都没有" */
+    const photoCountMap = photosForSentences(confirmed.map((r) => r.id));
+    const confirmedForLLM = confirmed.map((r) => ({ ...r, photoCount: (photoCountMap.get(r.id) || []).length }));
+
+    /* 约 10% 的轮次：顺带把话头引到他以前的一件事上。
+       挑一个"他讲得少、最近也没问过"的方向，用开放的问法请他说新的往事
+       （不是把库里的原话再问一遍）。 */
+    const inviteOn = shouldInviteMemory({
+      companion,
+      request,
+      correction,
+      fragment: isFragment || fragmentAbsorbed,
+      healthHint,
+      mood: a.mood.level,
+    });
+    const invitePick = inviteOn ? pickInviteTopic(confirmed, sess) : null;
+    inviteTopic = invitePick ? invitePick.ask : '';
 
     const giveHits = hits.filter((h) => h.score >= 0.22).slice(0, 5);
     const modelOut = await agentReply({
       persona,
-      confirmed,
+      confirmed: confirmedForLLM,
       story: sess.story.id ? sess.story.statement : '',
       history: sess.history.slice(-8).map((h) => ({
         role: h.role === 'elder' ? 'user' : 'assistant',
@@ -798,6 +1284,8 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
       text: raw,
       companion,
       healthHint,
+      inviteTopic,
+      family: familyRecent,
     });
     if (modelOut?.text) {
       usedLLM = { model: modelOut.model, ms: modelOut.ms, usage: modelOut.usage };
@@ -861,7 +1349,7 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
   if (touchedMerged?.id && touchedMerged.statement) touched.set(touchedMerged.id, touchedMerged.statement);
 
   if (tellable && substantial && !declined && !fragmentAbsorbed && !request && !correction) {
-    const distilled = distill(raw, { sessionId, status: 'confirmed', source: raw, birthYear: Number(persona.birth_year) || null, polished: said ? said.polished : '', entities: said ? said.entities : null, lifeEvent: said ? (said.scope === 'major' ? 2 : (said.scope === 'detail' ? 1 : 0)) : null });
+    const distilled = distill(raw, { sessionId, status: 'confirmed', source: raw, birthYear: Number(persona.birth_year) || null, polished: said ? said.polished : '', entities: said ? said.entities : null, clauses: said ? said.clauses : null, lifeEvent: said ? (said.scope === 'major' ? 2 : (said.scope === 'detail' ? 1 : 0)) : null });
     for (const m of distilled.merged) touched.set(m.id, m.statement);
     const first = distilled.created[0];
     if (first) {
@@ -912,7 +1400,64 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
   // 话题断点
   if (pieces.length) bumpTopic(pieces[0].statement.slice(0, 12), pieces[0].statement, false);
 
+  /* 照片：什么时候发图？
+     ① 老人在问"有图片吗 / 有照片吗" —— 先找当前这件事、最近聊过的几件、检索命中；
+        都对不上具体记忆，就退到库里最近的照片（他就是要看照片，别让他白问）。
+     ② 普通回答里用到的记忆挂了照片 —— 也一起发出来。
+     没接识图模型，所以只"发出来"，不对画面内容做识别。 */
+  const asksPhoto = /(图片|照片|相片|老照片|拍的.{0,2}照)/.test(raw);
+  const photoIds = [];
+  const pushPhotoId = (id) => { if (id && !photoIds.includes(id)) photoIds.push(id); };
+  if (asksPhoto) {
+    pushPhotoId(sess.story.id);
+    for (const st of (sess.recentStories || [])) pushPhotoId(st.id);
+  }
+  for (const h of (out.used || [])) if (h) pushPhotoId(h.id);
+  for (const h of hits.filter((x) => x.score >= 0.22).slice(0, 2)) pushPhotoId(h.id);
+  const photoMap = photosForSentences(photoIds);
+  const photos = [];
+  const seenPhoto = new Set();
+  const addPhotos = (list) => {
+    for (const ph of (list || [])) {
+      if (seenPhoto.has(ph.id)) continue;
+      seenPhoto.add(ph.id);
+      photos.push(ph);
+    }
+  };
+  for (const id of photoIds) addPhotos(photoMap.get(id));
+  if (asksPhoto && !photos.length) addPhotos(recentPhotos(3));
+
+  /* 老人在问照片：模型不知道有照片时容易说"我啥都没有" —— 这里按事实纠正。
+     （还没接识图，不要让它描述照片内容。） */
+  if (asksPhoto) {
+    const denying = /(没图片|没照片|没有图片|没有照片|啥都没有|手头.{0,3}没有|找不着照片)/.test(text2);
+    const mentions = /(图片|照片|相片)/.test(text2);
+    if (photos.length && (!mentions || denying)) {
+      text2 = `${call}，有照片，给您找着了，您看看。`;
+    } else if (!photos.length && (denying || !mentions)) {
+      text2 = `${call}，照片我这儿暂时没有。让家里人给您放一张进来，好不好？`;
+    }
+  }
+
   text2 = tidy(text2, (persona.max_chars || 60) + 40);
+  const dm = String(text2).match(/(?:就说|(?:回|回复)(?:一句|一句儿|个话|他|她|您)?\s*[：:]|这么回\s*[：:]?)\s*[「“"]?([^」”"]{1,160})/);
+  if (dm && dm[1]) {
+    const clean = cleanFamilyDraft(dm[1]);
+    if (clean) sess.familyDraft = { text: clean, at: Date.now() };
+  }
+
+  /* 模型很容易嘴上说"回了""已经发给孩子了"，但其实没调用发送。
+     这里拦住：真没发就改成"先拟一句/还没发"，绝不骗老人。 */
+  const claimsSent = /(?:已经?|这就|帮您|给您).{0,6}(?:回|发).{0,6}孩子|发给孩子|给孩子发|(?:嗯|好)[，,]?回了|回完了|回好了|发完了|发过去|回过去|发给他|回给他|发个.{0,8}过去|回个.{0,8}过去/.test(text2);
+  if (claimsSent) {
+    if (sess.familyDraft && sess.familyDraft.text) {
+      text2 = `我先拟一句：${sess.familyDraft.text}。您说「就这样子回」，我就发给孩子。`;
+    } else {
+      sess.familyTalk = { at: Date.now() };
+      text2 = '我还没发出去呢。您想跟孩子说什么？慢慢说，我给您带过去。';
+    }
+  }
+
   logUtterance({ session: sessionId, role: 'agent', text: text2 });
   remember(sess, 'elder', raw);
   remember(sess, 'agent', text2);
@@ -923,6 +1468,8 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
     by: usedLLM && !usedLLM.error ? 'llm' : 'rules',
     llm: usedLLM,
     strategy: out.strategy,
+    photos: photos.slice(0, 3),
+    invite: inviteTopic,        // 这一轮有没有顺带引一句旧事（给内部过程/测试看）
     context: {
       story: sess.story.id ? sess.story.statement : '',
       recent: sess.history.slice(-6).map((h) => `${h.role === 'elder' ? '老人' : '岁语'}：${h.text}`),
@@ -998,6 +1545,8 @@ async function buildOpening({ sessionId = 'default', reason = 'auto' } = {}) {
   const part = hour < 6 ? '这么早就醒了' : hour < 11 ? '早上好' : hour < 14 ? '中午了' : hour < 18 ? '下午好' : '晚上好';
   const st = stats();
   const sess = session(sessionId);
+  // 第一次用、没有任何对话记录：先让岁语介绍自己
+  const firstTime = !sess.history.length && !getMeta('first_intro', '');
 
   /** 记下"这句话是问什么的"，老人下一句短回答才能并进一件事 */
   const askWith = (text, kind, about) => {
@@ -1012,17 +1561,23 @@ async function buildOpening({ sessionId = 'default', reason = 'auto' } = {}) {
   if (llmConfig().available) {
     const rows = listSentences({ limit: 400 });
     const confirmed = rows.slice(-60);
-    const out = await agentOpening({ persona, confirmed, recent: recentOpenings(5) });
+    const out = await agentOpening({ persona, confirmed, recent: recentOpenings(5), firstTime });
     if (out?.text) {
-      const text = tidy(out.text, Number(persona.max_chars) || 45);
-      sess.lastAsk = { question: text, kind: 'open', about: openSeed(text), slots: ['base'] };
+      const text = tidy(out.text, firstTime ? 70 : (Number(persona.max_chars) || 45));
+      if (firstTime) setMeta('first_intro', '1');
+      sess.lastAsk = firstTime ? null : { question: text, kind: 'open', about: openSeed(text), slots: ['base'] };
       pushOpening(text);
-      return { text, why: '智能体起的话头', by: 'llm', ms: out.ms };
+      return { text, why: firstTime ? '第一次见面自我介绍' : '智能体起的话头', by: 'llm', ms: out.ms };
     }
     log('智能体起话头失败，退回规则：', out?.error || '空');
   }
 
   // （原来这里会挑一条"待老人核对"的记录去问 —— 核对流程已砍掉，不再问了）
+
+  if (firstTime) {
+    setMeta('first_intro', '1');
+    return { text: `${call}，我是${persona.agent_name || '岁语'}，您的${persona.self_ref || '小孙子'}。往后我就在这儿陪您说说话。`, why: '第一次见面自我介绍' };
+  }
 
   const topics = listTopics(3).filter((t) => t.status === 'open' && t.last_said);
   if (topics.length) {
@@ -1123,7 +1678,7 @@ export async function watchCheck({ sessionId = 'default' } = {}) {
 }
 
 export {
-  watchSnapshot as watchState, notePoll, ackSpoken, watchConfigure, watchClearLog, watchSetMood,
+  watchSnapshot as watchState, notePoll, ackSpoken, watchConfigure, watchClearLog, watchSetMood, watchResetConfig,
 };
 
 export { analyze, search, stats, listSentences };

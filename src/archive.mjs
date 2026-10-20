@@ -12,7 +12,7 @@
  */
 import { uid, nowISO } from './util.mjs';
 import { personKey } from './text.mjs';
-import { getNote } from './store.mjs';
+import { getNote, photosForSentences, groupKey } from './store.mjs';
 
 
 /* ------------------------------------------------------------------ *
@@ -66,7 +66,7 @@ export function saveTime(dbi, t, birthYear) {
   const info = resolveTime(t, birthYear);
   const key = t.year ? `abs:${t.year}` : `${t.kind}:${t.raw}`;
   const now = nowISO();
-  const row = dbi.prepare('SELECT * FROM times WHERE key = ?').get(key);
+  const row = dbi.prepare('SELECT * FROM times WHERE `key` = ?').get(key);
   if (row) {
     dbi.prepare('UPDATE times SET count = count + 1, year = COALESCE(?, year), from_year = COALESCE(?, from_year), to_year = COALESCE(?, to_year), last_seen = ? WHERE id = ?')
       .run(info.year ?? null, info.from ?? null, info.to ?? null, now, row.id);
@@ -74,7 +74,7 @@ export function saveTime(dbi, t, birthYear) {
   }
   const id = uid('t');
   dbi.prepare(
-    `INSERT INTO times (id,key,raw,label,kind,year,from_year,to_year,circa,basis,count,created_at,last_seen)
+    `INSERT INTO times (id,\`key\`,raw,label,kind,year,from_year,to_year,circa,basis,count,created_at,last_seen)
      VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)`,
   ).run(
     id, key, t.raw || '', info.label || t.label || t.raw || '', t.kind || 'other',
@@ -357,6 +357,7 @@ function timelineOf(dbi, status) {
     const g = groups.get(label);
     /* 显示**润色后**的话，不是原话；没润色过的先退回原句。原话留在 raw 里。 */
     g.items.push({
+      id: r.id,
       seq: r.seq,
       statement: r.polished || r.statement,
       raw: r.statement,
@@ -430,10 +431,22 @@ function timelineOf(dbi, status) {
     }
   }
 
+  /* 这一组里有哪几条记忆挂着照片 —— 卡片上直接显示（照片跟着记忆走，
+     分组怎么合并都不会丢）。 */
+  const allItemIds = [...new Set(merged.flatMap((g) => g.items.map((it) => it.id)))];
+  const photoMap = photosForSentences(allItemIds);
+  const photoOf = (it) => photoMap.get(it.id) || [];
+
   return merged.map(({ label, order, items, estimated }) => {
     /* 多条记忆 → 合成一句话（模型生成，缓存在 timeline_notes）。
        没合成过时 note 是空串，前端退回逐条显示。 */
     const key = noteKey(items);
+    const withPhotos = items.map((it) => ({ ...it, photos: photoOf(it) }));
+    const photos = [];
+    const seenPhoto = new Set();
+    for (const it of withPhotos) {
+      for (const ph of it.photos) if (!seenPhoto.has(ph.id)) { seenPhoto.add(ph.id); photos.push(ph); }
+    }
     return {
       label,
       order: order === null ? null : Number(order.toFixed(2)),
@@ -441,12 +454,13 @@ function timelineOf(dbi, status) {
       key,
       note: getNote(key),
       needNote: items.length >= 2 && !getNote(key),   // 前端据此自动触发合并
-      items,
+      items: withPhotos,
+      photos,
     };
   });
 }
 
 /** 一组合并叙述的缓存键：这一组有哪些话（排序拼起来），变了就重新合成 */
 function noteKey(items) {
-  return items.map((i) => i.raw || i.statement).slice().sort().join('|').slice(0, 400);
+  return groupKey('', items.map((i) => i.raw || i.statement));
 }

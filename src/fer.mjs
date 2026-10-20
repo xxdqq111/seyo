@@ -14,74 +14,28 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, DATA_DIR, log } from './util.mjs';
+import { probePython, pythonProbeError, serviceHealth } from './python.mjs';
 
 const SERVICE = path.join(ROOT, 'model', 'fer_service.py');
 const LOG_FILE = path.join(DATA_DIR, 'fer.log');
-
-/** 候选 Python：优先显式配置，然后挨个试（要能 import torch） */
-export function pythonCandidates(configured = '') {
-  const list = [];
-  if (configured) list.push(configured);
-  list.push(
-    process.env.SEYO_PYTHON || '',
-    // 装了 torch 的那个（这台机器上就是它）
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
-    'python',
-    'python3',
-  );
-  return [...new Set(list.filter(Boolean))];
-}
 
 let pythonBin = null;   // 探测结果缓存
 let proc = null;        // 子进程
 let starting = null;    // 正在启动中的 Promise（防止并发起两个）
 let lastError = '';
 
-/** 让候选 Python 跑一句 import torch，看谁行 */
-export function probePython(configured = '') {
-  if (pythonBin) return Promise.resolve(pythonBin);
-  const cands = pythonCandidates(configured);
-  return new Promise((resolve) => {
-    let i = 0;
-    const next = () => {
-      if (i >= cands.length) { lastError = '找不到装了 torch 的 Python'; resolve(null); return; }
-      const bin = cands[i++];
-      let out = '';
-      let done = false;
-      let p;
-      try {
-        p = spawn(bin, ['-c', 'import torch;print(torch.__version__)'], { stdio: ['ignore', 'pipe', 'pipe'] });
-      } catch { next(); return; }
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        try { p.kill(); } catch { /* ignore */ }
-        if (ok) { pythonBin = bin; log(`本地表情模型：用 ${bin}（torch ${out.trim()}）`); resolve(bin); }
-        else next();
-      };
-      const timer = setTimeout(() => finish(false), 20000);
-      p.stdout.on('data', (d) => { out += d; });
-      p.on('error', () => finish(false));
-      p.on('exit', (code) => finish(code === 0));
-    };
-    next();
-  });
+/** 找一个能 import torch 的 Python（探测结果缓存） */
+async function findPython(configured = '') {
+  const bin = await probePython({ configured, imports: ['torch'], label: '本地表情模型' });
+  if (bin) pythonBin = bin;
+  else lastError = pythonProbeError(['torch']) || '找不到装了 torch 的 Python';
+  return bin;
 }
 
 export function isRunning() { return Boolean(proc && !proc.killed); }
 
 /** 调一次服务，看活着没 */
-export async function ferHealth(port, timeoutMs = 2500) {
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), timeoutMs);
-    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: ctl.signal });
-    clearTimeout(t);
-    return r.ok ? await r.json() : null;
-  } catch { return null; }
-}
+export const ferHealth = serviceHealth;
 
 /**
  * 确保服务在跑。第一次调用会启动，之后直接用。
@@ -106,7 +60,7 @@ export async function ensureFer(cfg) {
   starting = (async () => {
     try {
       if (!isRunning()) {
-        const bin = await probePython(py);
+        const bin = await findPython(py);
         if (!bin) return { ok: false, error: lastError || '找不到装了 torch 的 Python' };
 
         fs.mkdirSync(DATA_DIR, { recursive: true });

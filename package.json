@@ -2,9 +2,11 @@
   "name": "seyo-agent",
   "version": "2.0.0",
   "private": true,
-  "description": "岁语 · 陪老人说话的智能体：细心应答、把老人讲的话整理简化后存进独立数据库、老人再提起时搜索主句库作答",
+  "description": "岁语 · 陪老人说话的智能体（MySQL + 登录，多账号隔离）",
   "type": "module",
-  "engines": { "node": ">=23.4.0" },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node src/server.mjs --port 3789",
     "test": "node test/run.mjs",
@@ -17,9 +19,13 @@
     "test:sound": "node test/sound.mjs",
     "test:voice": "node test/voice.mjs",
     "test:tts": "node test/tts.mjs",
+    "test:meds": "node test/meds.mjs",
     "test:say": "python test/tts_test.py",
     "test:timeline": "node test/timeline.mjs",
     "test:correction": "node test/correction.mjs",
     "check": "node test/run.mjs && node test/family.mjs && node test/nav.mjs"
+  },
+  "dependencies": {
+    "mysql2": "^3.24.6"
   }
 }

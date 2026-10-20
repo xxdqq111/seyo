@@ -16,179 +16,59 @@
  * 检索：进程内倒排索引（字面 n-gram → 主句 id），全部走字面重合度打分。
  *       实测能对上老人换过说法的问句（"我以前是干啥工作的来着？" → "我在纺织厂当挡车工"）。
  */
-import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, uid, nowISO, DATA_DIR, log } from './util.mjs';
+import { db, DB_LABEL, currentDbName, ensureAccountDb, accountDbName } from './mysql.mjs';
 import { bare, grams, personKey, keywords as kwOf, queryKinds, sentenceKinds } from './text.mjs';
 import { attachDimensions, browseArchive, archiveSummary, resolveTime, saveTime, savePlace, savePerson, saveEvent } from './archive.mjs';
 
-const DB_FILE = path.join(DATA_DIR, 'seyo.db');
+/* 每个账号一个 MySQL 库；这个常量只用于界面/日志展示 */
+const DB_FILE = DB_LABEL;
 const INDEX_FILE = path.join(DATA_DIR, 'index.json');
-
-/** 每条主句的话题类别缓存（id → Set） */
-const kindCache = new Map();
-
-export const db = new DatabaseSync(DB_FILE);
-
-db.exec(`
-PRAGMA journal_mode = WAL;
-
-CREATE TABLE IF NOT EXISTS utterances (
-  id         TEXT PRIMARY KEY,
-  session    TEXT NOT NULL,
-  role       TEXT NOT NULL,
-  text       TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_utt_time ON utterances(created_at DESC);
-
-CREATE TABLE IF NOT EXISTS sentences (
-  id          TEXT PRIMARY KEY,
-  seq         INTEGER,
-  statement   TEXT NOT NULL,          -- 主句（陈述）
-  asks        TEXT NOT NULL DEFAULT '[]', -- 疑问形式（老人可能会怎么问）
-  keywords    TEXT NOT NULL DEFAULT '[]',
-  persons     TEXT NOT NULL DEFAULT '[]',
-  places      TEXT NOT NULL DEFAULT '[]',
-  events      TEXT NOT NULL DEFAULT '[]',
-  time_raw    TEXT NOT NULL DEFAULT '',
-  time_label  TEXT NOT NULL DEFAULT '',
-  year        INTEGER,
-  confidence  REAL NOT NULL DEFAULT 0.6,
-  status      TEXT NOT NULL DEFAULT 'pending',   -- pending | confirmed
-  source      TEXT NOT NULL DEFAULT '',
-  session     TEXT NOT NULL DEFAULT '',
-  asked_count INTEGER NOT NULL DEFAULT 0,
-  told_count  INTEGER NOT NULL DEFAULT 1,
-  created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sent_seq ON sentences(seq);
-CREATE INDEX IF NOT EXISTS idx_sent_status ON sentences(status);
-
-CREATE TABLE IF NOT EXISTS candidates (
-  id          TEXT PRIMARY KEY,
-  sentence_id TEXT,
-  question    TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'open',
-  created_at  TEXT NOT NULL,
-  resolved_at TEXT
-);
-
-
-CREATE TABLE IF NOT EXISTS topics (
-  id         TEXT PRIMARY KEY,
-  title      TEXT NOT NULL,
-  last_said  TEXT NOT NULL DEFAULT '',
-  ask_count  INTEGER NOT NULL DEFAULT 0,
-  avoid_count INTEGER NOT NULL DEFAULT 0,
-  status     TEXT NOT NULL DEFAULT 'open',
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS meta (
-  k TEXT PRIMARY KEY,
-  v TEXT NOT NULL
-);
-
-/* ------------------------------------------------------------------ *
- * 记忆档案库的四个维度（对应产品说明：人物 / 时间 / 地点 / 事件）
- * 每个维度有自己的表和 id，用关联表挂到"记忆"（一条主句即一段记忆）上，
- * 这样既能按维度筛选浏览，也能做人物实体合并与模糊时间归一化。
- * ------------------------------------------------------------------ */
-
-CREATE TABLE IF NOT EXISTS people (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,              -- 主名（取最正式的那个叫法）
-  alias_key  TEXT NOT NULL,              -- 归一后的键：老张 / 张师傅 / 张建国 → 同一人
-  aliases    TEXT NOT NULL DEFAULT '[]', -- 老人用过的所有叫法
-  relation   TEXT NOT NULL DEFAULT '',   -- 关系：老伴 / 儿子 / 师傅 / 工友…
-  count      INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  last_seen  TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_people_key ON people(alias_key);
-
-CREATE TABLE IF NOT EXISTS times (
-  id         TEXT PRIMARY KEY,
-  key        TEXT NOT NULL,              -- 归一键：abs:1950 / age:二十来岁 / era:文革
-  raw        TEXT NOT NULL,              -- 老人原话（保留）
-  label      TEXT NOT NULL,              -- 归一后的说法
-  kind       TEXT NOT NULL DEFAULT 'other', -- abs | age | life | era | other
-  year       INTEGER,                    -- 单一确定年份
-  from_year  INTEGER,                    -- 区间起
-  to_year    INTEGER,                    -- 区间止
-  circa      INTEGER NOT NULL DEFAULT 0, -- 是否为约数
-  basis      TEXT NOT NULL DEFAULT '',   -- 归一依据（按出生年推算 / 保留原说法）
-  count      INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  last_seen  TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_times_key ON times(key);
-CREATE INDEX IF NOT EXISTS idx_times_year ON times(year);
-
-CREATE TABLE IF NOT EXISTS places (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  label      TEXT NOT NULL DEFAULT '',   -- 展示名（"沈阳·纺织厂"）；地图上插旗用它
-  kind       TEXT NOT NULL DEFAULT '',   -- 城市 / 厂矿 / 村庄 / 院子 …
-  count      INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  last_seen  TEXT NOT NULL
-);
--- 同名地点在不同城市要分开："沈阳·纺织厂" 和 "北京·纺织厂" 是两条
-CREATE UNIQUE INDEX IF NOT EXISTS idx_places_label ON places(label);
-CREATE INDEX IF NOT EXISTS idx_places_name ON places(name);
-
-CREATE TABLE IF NOT EXISTS events (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,              -- 事件（住宿舍 / 分房 / 当兵 / 出嫁…）
-  raw        TEXT NOT NULL DEFAULT '',   -- 当时的原话
-  count      INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  last_seen  TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_name ON events(name);
-
-CREATE TABLE IF NOT EXISTS person_links (sentence_id TEXT NOT NULL, person_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (sentence_id, person_id));
-CREATE TABLE IF NOT EXISTS time_links   (sentence_id TEXT NOT NULL, time_id   TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (sentence_id, time_id));
-CREATE TABLE IF NOT EXISTS place_links  (sentence_id TEXT NOT NULL, place_id  TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (sentence_id, place_id));
-CREATE TABLE IF NOT EXISTS event_links  (sentence_id TEXT NOT NULL, event_id  TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (sentence_id, event_id));
-`);
 
 /* ================================================================== *
  * 内存倒排索引
  * ================================================================== */
 
-/** gram → Set<句子 id> */
-const inverted = new Map();
-/** id → 该句的全部 gram */
-const docGrams = new Map();
+/** 每个账号库一份内存索引（gram → Set<句子 id>） */
+const indexStates = new Map();
+function idxState() {
+  const name = currentDbName();
+  let st = indexStates.get(name);
+  if (!st) {
+    st = { inverted: new Map(), docGrams: new Map(), kindCache: new Map(), loaded: false };
+    indexStates.set(name, st);
+  }
+  if (!st.loaded) {
+    st.loaded = true;
+    loadIndex(st);
+  }
+  return st;
+}
 
-function indexAdd(id, text) {
+function indexAdd(id, text, st = idxState()) {
   const gs = grams(text);
-  docGrams.set(id, gs);
+  st.docGrams.set(id, gs);
   for (const g of gs) {
-    if (!inverted.has(g)) inverted.set(g, new Set());
-    inverted.get(g).add(id);
+    if (!st.inverted.has(g)) st.inverted.set(g, new Set());
+    st.inverted.get(g).add(id);
   }
 }
 
 function indexRemove(id) {
-  const gs = docGrams.get(id);
+  const st = idxState();
+  const gs = st.docGrams.get(id);
   if (!gs) return;
   for (const g of gs) {
-    const set = inverted.get(g);
+    const set = st.inverted.get(g);
     if (set) {
       set.delete(id);
-      if (!set.size) inverted.delete(g);
+      if (!set.size) st.inverted.delete(g);
     }
   }
-  docGrams.delete(id);
+  st.docGrams.delete(id);
 }
-
-const rowCache = new Map();
 
 function hydrate(row) {
   if (!row) return null;
@@ -207,40 +87,15 @@ export function getSentence(id) {
   return hydrate(row);
 }
 
-/** 启动时把已入库的主句读进索引 */
-function loadIndex() {
+/** 把某个账号库已入库的主句读进索引（每个库只读一次） */
+function loadIndex(st) {
   const rows = db.prepare('SELECT id, statement, asks, keywords, persons, places, events FROM sentences').all();
   for (const r of rows) {
     const s = hydrate(r);
-    indexAdd(s.id, `${s.statement} ${s.asks.join(' ')} ${s.keywords.join(' ')} ${[...s.persons, ...s.places, ...s.events].join(' ')}`);
+    indexAdd(s.id, `${s.statement} ${s.asks.join(' ')} ${s.keywords.join(' ')} ${[...s.persons, ...s.places, ...s.events].join(' ')}`, st);
   }
   return rows.length;
 }
-// 老库缺列自动补上（升级时不用重建数据库）
-const _addedCols = ensureColumns();
-if (_addedCols.length) log(`数据库升级：补了 ${_addedCols.join('、')}`);
-
-/* ------------------------------------------------------------------ *
- * 一次性迁移：核对流程已经砍掉
- * ------------------------------------------------------------------
- * 以前记忆是两档的：pending（等老人点头）→ confirmed（他点头了才算数）。
- * 现在不问了，老人说什么就直接记下。所以老库里那些挂着 pending 的
- * 要一次性转正 —— 否则家人端会一直显示"待确认"，而那些永远不会有人去确认了。
- * ------------------------------------------------------------------ */
-try {
-  const stuck = db.prepare("SELECT COUNT(*) c FROM sentences WHERE status <> 'confirmed'").get().c;
-  if (stuck > 0) {
-    db.prepare("UPDATE sentences SET status = 'confirmed' WHERE status <> 'confirmed'").run();
-    db.prepare("UPDATE candidates SET status = 'accepted', resolved_at = ? WHERE status = 'open'")
-      .run(new Date().toISOString());
-    log(`数据库升级：核对流程已取消，把 ${stuck} 条"待确认"的记忆直接转为已记下`);
-  }
-} catch (e) {
-  log('迁移待确认记忆失败（不影响使用）：', e.message);
-}
-
-export const indexedCount = loadIndex();
-
 /* ================================================================== *
  * 主句库：写入
  * ================================================================== */
@@ -296,7 +151,7 @@ function findDuplicate(statement) {
 
   const cands = new Set();
   for (const g of grams(key)) {
-    const set = inverted.get(g);
+    const set = idxState().inverted.get(g);
     if (!set) continue;
     for (const id of set) cands.add(id);
   }
@@ -394,7 +249,7 @@ export function addSentence(a, meta = {}) {
         `UPDATE sentences SET statement = ?, time_raw = COALESCE(NULLIF(?,''), time_raw),
            time_label = COALESCE(NULLIF(?,''), time_label), year = COALESCE(?, year),
            keywords = ?, persons = ?, places = ?, events = ?,
-           told_count = told_count + 1, updated_at = ?, confidence = MAX(confidence, ?)
+           told_count = told_count + 1, updated_at = ?, confidence = GREATEST(confidence, ?)
          WHERE id = ?`,
       ).run(
         statement, t0.raw || '', t0.label || '', t0.year ?? null,
@@ -421,7 +276,7 @@ export function addSentence(a, meta = {}) {
       attachDimensions(db, dup.id, merged, { birthYear: meta.birthYear ?? null });
       return { action: 'merged', id: dup.id, sentence: getSentence(dup.id), overlap: dup.overlap, dims: dimensionMap(dup.id) };
     }
-    db.prepare('UPDATE sentences SET told_count = told_count + 1, updated_at = ?, confidence = MAX(confidence, ?) WHERE id = ?')
+    db.prepare('UPDATE sentences SET told_count = told_count + 1, updated_at = ?, confidence = GREATEST(confidence, ?) WHERE id = ?')
       .run(nowISO(), a.confidence ?? 0.6, dup.id);
     return { action: 'merged', id: dup.id, sentence: getSentence(dup.id), overlap: dup.overlap, dims: dimensionMap(dup.id) };
   }
@@ -474,7 +329,7 @@ function askGrams(asks = []) {
  * @returns {Array} 命中，按相关度排序，带分项得分
  */
 export function search(query, a = {}) {
-  const docTotal = docGrams.size || 1;
+  const docTotal = idxState().docGrams.size || 1;
   const qGrams = a.grams || grams(query);
   const qKw = a.keywords || kwOf(query);
   const qPersons = a.persons || [];
@@ -488,7 +343,7 @@ export function search(query, a = {}) {
   // ① 倒排索引取候选
   const hitCount = new Map();
   for (const g of qGrams) {
-    const set = inverted.get(g);
+    const set = idxState().inverted.get(g);
     if (!set) continue;
     for (const id of set) hitCount.set(id, (hitCount.get(id) || 0) + 1);
   }
@@ -496,14 +351,14 @@ export function search(query, a = {}) {
   if (qKinds.length) {
     for (const row of listSentences({ limit: 5000 })) {
       const sk = sentenceKinds(row);
-      kindCache.set(row.id, sk);
+      idxState().kindCache.set(row.id, sk);
       if (qKinds.some((k) => sk.has(k)) && !hitCount.has(row.id)) hitCount.set(row.id, 1);
     }
   }
   // ③ 实体/关键词直查兜底
   for (const term of [...qPersons, ...qPlaces, ...qEvents, ...qKw.slice(0, 6)]) {
     if (term.length < 2) continue;
-    for (const [g, set] of inverted) {
+    for (const [g, set] of idxState().inverted) {
       if (g.length >= 2 && (g === term || (term.length >= 3 && (g.includes(term) || term.includes(g)) && g.length >= 2))) {
         for (const id of set) if (!hitCount.has(id)) hitCount.set(id, 1);
       }
@@ -526,7 +381,7 @@ export function search(query, a = {}) {
     const row = getSentence(id);
     if (!row) continue;
 
-    const dGrams = docGrams.get(id) || new Set();
+    const dGrams = idxState().docGrams.get(id) || new Set();
     // 字面重合度 = 这句话的片段有多少真的出现在**这一条**记录里。
     // 两点必须守住，否则会凭空"对上"：
     //   ① 只看这一条的片段集合（不是"只要索引里有就算"，那是别条的内容）
@@ -534,7 +389,7 @@ export function search(query, a = {}) {
     let inter = 0;
     let weightSum = 0;
     for (const g of qGrams) {
-      const df = inverted.get(g)?.size || 0;
+      const df = idxState().inverted.get(g)?.size || 0;
       const common = docTotal > 2 && df / docTotal > 0.5;
       const w = common ? 0 : g.length >= 3 ? 1 : 0.7;
       weightSum += w;
@@ -573,8 +428,8 @@ export function search(query, a = {}) {
     // 话题类别：老人问的是"干过什么工作"，这条讲的是"当挡车工" → 靠类别对上
     let kindScore = 0;
     if (qKinds.length) {
-      const sk = kindCache.get(id) || sentenceKinds(row);
-      kindCache.set(id, sk);
+      const sk = idxState().kindCache.get(id) || sentenceKinds(row);
+      idxState().kindCache.set(id, sk);
       for (const k of qKinds) if (sk.has(k)) kindScore += 1;
     }
 
@@ -631,26 +486,8 @@ export function markAsked(ids = []) {
  * 待确认队列
  * ================================================================== */
 
-export function addCandidate(sentenceId, question) {
-  const id = uid('c');
-  db.prepare('INSERT INTO candidates (id, sentence_id, question, status, created_at) VALUES (?,?,?,?,?)')
-    .run(id, sentenceId, question, 'open', nowISO());
-  return id;
-}
-
 export function openCandidates(limit = 5) {
   return db.prepare("SELECT * FROM candidates WHERE status = 'open' ORDER BY created_at DESC LIMIT ?").all(limit);
-}
-
-export function resolveCandidate(id, accepted) {
-  const row = db.prepare('SELECT * FROM candidates WHERE id = ?').get(id);
-  if (!row) return null;
-  db.prepare('UPDATE candidates SET status = ?, resolved_at = ? WHERE id = ?').run(accepted ? 'accepted' : 'rejected', nowISO(), id);
-  if (row.sentence_id) {
-    db.prepare('UPDATE sentences SET status = ?, confidence = ?, updated_at = ? WHERE id = ?')
-      .run(accepted ? 'confirmed' : 'pending', accepted ? 0.95 : 0.4, nowISO(), row.sentence_id);
-  }
-  return { ...row, status: accepted ? 'accepted' : 'rejected' };
 }
 
 /* ================================================================== *
@@ -665,7 +502,7 @@ export function logUtterance({ session, role, text }) {
 }
 
 export function recentUtterances(limit = 30) {
-  return db.prepare('SELECT * FROM utterances ORDER BY created_at DESC, rowid DESC LIMIT ?').all(limit).reverse();
+  return db.prepare('SELECT * FROM utterances ORDER BY created_at DESC, id DESC LIMIT ?').all(limit).reverse();
 }
 
 /** 四个维度里的条目（人物含别名合并；时间含归一化后的区间） */
@@ -713,6 +550,13 @@ export function listSentences({ limit = 200, status } = {}) {
 export function deleteSentence(id) {
   indexRemove(id);
   db.prepare('DELETE FROM candidates WHERE sentence_id = ?').run(id);
+  /* 这条记忆配的照片一起删（记录 + 磁盘文件），不留孤儿 */
+  try {
+    for (const r of db.prepare('SELECT file FROM photos WHERE sentence_id = ?').all(id)) {
+      try { fs.unlinkSync(path.join(DATA_DIR, 'photos', r.file)); } catch { /* ignore */ }
+    }
+    db.prepare('DELETE FROM photos WHERE sentence_id = ?').run(id);
+  } catch { /* 老库可能还没 photos 表 */ }
   for (const dim of ['person', 'time', 'place', 'event']) db.prepare(`DELETE FROM ${dim}_links WHERE sentence_id = ?`).run(id);
   db.prepare('DELETE FROM sentences WHERE id = ?').run(id);
   pruneDimensions();          // 顺带清掉没人再提到的维度条目
@@ -842,9 +686,9 @@ export function stats() {
     events: c('SELECT COUNT(*) c FROM events'),
     times: c('SELECT COUNT(*) c FROM times'),
     openCandidates: c("SELECT COUNT(*) c FROM candidates WHERE status='open'"),
-    indexed: inverted.size,
+    indexed: idxState().inverted.size,
     dbFile: DB_FILE,
-    indexPath: INDEX_FILE,
+    indexPath: path.join(DATA_DIR, `index-${currentDbName()}.json`),
   };
 }
 
@@ -869,8 +713,9 @@ export function dumpIndex() {
       dims: dimensionMap(s.id),
     })),
   };
-  fs.writeFileSync(INDEX_FILE, JSON.stringify(payload, null, 2), 'utf8');
-  return { file: INDEX_FILE, count: items.length };
+  const file = path.join(DATA_DIR, `index-${currentDbName()}.json`);
+  fs.writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8');
+  return { file, count: items.length };
 }
 
 /**
@@ -941,6 +786,32 @@ export function graph({ selfName = '' } = {}) {
   return { nodes: [selfNode, ...nodes], links, solo, kinds: ['self', 'person'], selfId };
 }
 
+export function listPeople() {
+  return db.prepare('SELECT * FROM people ORDER BY count DESC LIMIT 200').all();
+}
+
+/** 把 drop 人物并进 keep：别名合并、这条记忆的关联转过去、删掉多余人物 */
+export function mergePersonRows(keepId, dropId) {
+  if (!keepId || !dropId || keepId === dropId) return false;
+  const keep = db.prepare('SELECT * FROM people WHERE id = ?').get(keepId);
+  const drop = db.prepare('SELECT * FROM people WHERE id = ?').get(dropId);
+  if (!keep || !drop) return false;
+  const aliases = new Set([
+    ...JSON.parse(keep.aliases || '[]'),
+    ...JSON.parse(drop.aliases || '[]'),
+    keep.name, drop.name,
+  ].filter(Boolean));
+  // 同一条记忆里两个人物都出现过：先删掉要合并的那个链接，避免主键冲突
+  db.prepare(`DELETE l FROM person_links l
+    JOIN person_links k ON k.sentence_id = l.sentence_id
+    WHERE l.person_id = ? AND k.person_id = ?`).run(dropId, keepId);
+  db.prepare('UPDATE person_links SET person_id = ? WHERE person_id = ?').run(keepId, dropId);
+  db.prepare('UPDATE people SET aliases = ?, count = count + ?, last_seen = ? WHERE id = ?')
+    .run(JSON.stringify([...aliases]), Number(drop.count || 0), nowISO(), keepId);
+  db.prepare('DELETE FROM people WHERE id = ?').run(dropId);
+  return true;
+}
+
 export function getDb() {
   return db;
 }
@@ -957,7 +828,7 @@ export function dbTables() {
     ['times', '时间', 'SELECT * FROM times ORDER BY (year IS NULL), year ASC LIMIT 500'],
     ['places', '地点', 'SELECT * FROM places ORDER BY count DESC LIMIT 500'],
     ['events', '事件', 'SELECT * FROM events ORDER BY count DESC LIMIT 500'],
-    ['utterances', '老人原话', 'SELECT * FROM utterances ORDER BY rowid DESC LIMIT 300'],
+    ['utterances', '老人原话', 'SELECT * FROM utterances ORDER BY created_at DESC LIMIT 300'],
     ['candidates', '待核对队列', 'SELECT * FROM candidates ORDER BY created_at DESC LIMIT 200'],
     ['topics', '话题断点', 'SELECT * FROM topics ORDER BY updated_at DESC LIMIT 100'],
     ['meta', '设置（人设等）', 'SELECT * FROM meta'],
@@ -998,65 +869,6 @@ export function dbTables() {
 }
 
 /**
- * 小改表结构：老库缺列就补上（不重建表、不动数据）
- * 例：places 表后来加了 label（展示名，如"沈阳·纺织厂"）
- */
-export function ensureColumns() {
-  const want = {
-    places: {
-      label: "TEXT NOT NULL DEFAULT ''",
-      year: 'INTEGER',
-      year_from: 'INTEGER',
-      year_to: 'INTEGER',
-    },
-    people: { relation: "TEXT NOT NULL DEFAULT ''" },
-    times: { note: "TEXT NOT NULL DEFAULT ''" },
-    events: { note: "TEXT NOT NULL DEFAULT ''" },
-    /* 时间轴上显示的是**润色后**的话，不是原话。
-       statement 留着原汁原味（检索、记忆库、给模型看都要用它），
-       polished 只给家人端时间轴看 —— 一行行读下来像小传，不像聊天记录。 */
-    sentences: {
-      polished: "TEXT NOT NULL DEFAULT ''",
-      /* 值不值得上"人生时间轴"。NULL = 还没判过（先当值得）。
-         时间轴是人生大事的索引，不是流水账 —— 今天腰疼、今天想起点事
-         这种不进时间轴，但记忆库里照样留着。 */
-      life_event: 'INTEGER',
-    },
-  };
-  const added = [];
-  /* 时间轴上一个时间段的多条记忆，要合成**一句话**读起来才像回事
-     （"我在那边开餐馆 / 三点就要起来 / 买的人很多" → 一句）。
-     合成结果按"这一组有哪些话"做键缓存起来，别每次开页面都重新问模型。 */
-  try {
-    db.exec(`CREATE TABLE IF NOT EXISTS place_geo (
-      name TEXT PRIMARY KEY,
-      city TEXT NOT NULL DEFAULT '',
-      geo INTEGER,
-      why TEXT NOT NULL DEFAULT ''
-    )`);
-    db.exec(`CREATE TABLE IF NOT EXISTS timeline_notes (
-      k TEXT PRIMARY KEY,
-      text TEXT NOT NULL DEFAULT '',
-      updated_at TEXT
-    )`);
-  } catch (e) { log(`建 timeline_notes 失败：${e.message}`); }
-  for (const [table, cols] of Object.entries(want)) {
-    const has = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
-    if (!has.size) continue;
-    for (const [col, decl] of Object.entries(cols)) {
-      if (has.has(col)) continue;
-      try {
-        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
-        added.push(`${table}.${col}`);
-      } catch (e) {
-        log(`加列失败 ${table}.${col}：${e.message}`);
-      }
-    }
-  }
-  return added;
-}
-
-/**
  * 用当前的抽取规则，把已有的记忆重新抽一遍四维
  * （改了抽取规则、或想把老数据补齐时用）
  */
@@ -1081,15 +893,28 @@ export function reextractAll(analyzeFn, { birthYear = null } = {}) {
 
 export function resetAll({ keepPersona = true } = {}) {
   const persona = keepPersona ? getMeta('persona') : null;
+  /* 照片和合并叙述都是记忆的附属：记忆清空，它们也一起清，
+     不然下次往同一个地点加记忆会读到旧的缓存/配图。
+     吃药安排/记录也一样 —— "重置"就是把这一份档案整个清掉。 */
+  try {
+    for (const r of db.prepare('SELECT file FROM photos').all()) {
+      try { fs.unlinkSync(path.join(DATA_DIR, 'photos', r.file)); } catch { /* 文件没了就算了 */ }
+    }
+  } catch { /* 表可能还没建 */ }
   const tables = [
     'utterances', 'candidates', 'sentences', 'topics',
     'person_links', 'time_links', 'place_links', 'event_links',
     'people', 'times', 'places', 'events',
+    'photos', 'timeline_notes',
+    'meds', 'med_logs', 'reminders',
+    'family_messages', 'daily_summaries',
   ];
   for (const t of tables) db.exec(`DELETE FROM ${t}`);
-  inverted.clear();
-  docGrams.clear();
-  kindCache.clear();
+  // 这两项是"上一次对话"的缓存：不清的话重置后开场白仍会避开旧话，甚至重复旧内容
+  for (const k of ['recent_openings', 'first_intro']) {
+    try { db.prepare('DELETE FROM meta WHERE k = ?').run(k); } catch { /* 旧库没有 meta 也不影响 */ }
+  }
+  indexStates.delete(currentDbName());
   if (persona) setMeta('persona', persona);
   /* keepPersona=false → 连基本信息一起清掉（称呼 / 出生年份 / 老家）。
      注意：上面 getMeta 拿到的还是**老的** persona，这里必须真的删，
@@ -1113,6 +938,151 @@ export function putNote(k, text) {
       .run(k, String(text || ''), nowISO());
   } catch (e) { log(`写 timeline_notes 失败：${e.message}`); }
 }
+
+/* ---- 记忆配图：照片文件在 data/photos/，数据库只记文件名 ---- */
+const photoUrl = (id) => '/api/photos/' + id;
+function photoOut(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    sentenceId: r.sentence_id,
+    file: r.file,
+    mime: r.mime || '',
+    caption: r.caption || '',
+    createdAt: r.created_at,
+    url: photoUrl(r.id),
+  };
+}
+export function addPhoto({ id = '', sentenceId, file, mime = '', caption = '' } = {}) {
+  const pid = id || uid('ph');
+  db.prepare('INSERT INTO photos (id, sentence_id, file, mime, caption, created_at) VALUES (?,?,?,?,?,?)')
+    .run(pid, String(sentenceId), String(file), String(mime || ''), String(caption || ''), nowISO());
+  return getPhoto(pid);
+}
+export function getPhoto(id) {
+  try { return photoOut(db.prepare('SELECT * FROM photos WHERE id = ?').get(id)); } catch { return null; }
+}
+/** 删一条记录，返回被删的 photo（调用方负责删磁盘文件） */
+export function deletePhoto(id) {
+  const p = getPhoto(id);
+  if (!p) return null;
+  try {
+    db.prepare('DELETE FROM photos WHERE id = ?').run(id);
+    return p;
+  } catch (e) { log(`删照片失败：${e.message}`); return null; }
+}
+/** 批量取：sentenceId 数组 → Map(sentenceId → photo[]) */
+export function photosForSentences(ids = []) {
+  const map = new Map();
+  const list = [...new Set((ids || []).filter(Boolean).map(String))];
+  if (!list.length) return map;
+  const marks = list.map(() => '?').join(',');
+  try {
+    const rows = db.prepare(`SELECT * FROM photos WHERE sentence_id IN (${marks}) ORDER BY created_at ASC, id ASC`).all(...list);
+    for (const r of rows) {
+      if (!map.has(r.sentence_id)) map.set(r.sentence_id, []);
+      map.get(r.sentence_id).push(photoOut(r));
+    }
+  } catch (e) { log(`读照片失败：${e.message}`); }
+  return map;
+}
+/** 库里最近的照片（老人直接问"有图片吗"、又对不上具体记忆时兜底用） */
+export function recentPhotos(limit = 6) {
+  try {
+    return db.prepare('SELECT * FROM photos ORDER BY created_at DESC, id DESC LIMIT ?').all(Number(limit) || 6).map(photoOut);
+  } catch { return []; }
+}
+
+/* ---- 合并叙述的缓存键 ----
+   时间轴一个时间段、地图一个地点，都是"一组话 → 一句合成"。
+   键 = 前缀 + 这组话排序拼起来（前 400 字），变了就重新合成。
+   时间轴和地图以前各写了一份，现在合成这一个。 */
+export function groupKey(prefix = '', texts = []) {
+  return prefix + [...(texts || [])]
+    .map((t) => String(t || ''))
+    .sort()
+    .join('|')
+    .slice(0, 400);
+}
+
+/* ---- 吃药提醒：药名 + 每天几个时间点 + 哪一顿已经吃过 ---- */
+function medOut(r) {
+  if (!r) return null;
+  let times = [];
+  try { times = JSON.parse(r.times || '[]'); } catch { times = []; }
+  return {
+    id: r.id,
+    name: r.name,
+    dose: r.dose || '',
+    times: Array.isArray(times) ? times : [],
+    note: r.note || '',
+    enabled: Boolean(r.enabled),
+    createdAt: r.created_at,
+  };
+}
+/** 每天几点（HH:MM）没写对就不收，避免界面上出现"25:99"这种 */
+export function cleanMedTimes(times = []) {
+  const list = Array.isArray(times) ? times : String(times || '').split(/[，,、\s]+/);
+  const out = [];
+  for (const raw of list) {
+    const t = String(raw || '').trim();
+    const m = /^(\d{1,2})[:：](\d{2})$/.exec(t);
+    if (!m) continue;
+    const hh = Number(m[1]); const mm = Number(m[2]);
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) continue;
+    const v = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    if (!out.includes(v)) out.push(v);
+  }
+  return out.sort();
+}
+export function listMeds() {
+  try {
+    return db.prepare('SELECT * FROM meds ORDER BY created_at ASC, id ASC').all().map(medOut);
+  } catch { return []; }
+}
+export function getMed(id) {
+  try { return medOut(db.prepare('SELECT * FROM meds WHERE id = ?').get(id)); } catch { return null; }
+}
+export function saveMed({ id = '', name = '', dose = '', times = [], note = '', enabled = true } = {}) {
+  const nm = String(name || '').trim().slice(0, 40);
+  if (!nm) return { ok: false, error: '药名不能是空的' };
+  const ts = cleanMedTimes(times);
+  if (!ts.length) return { ok: false, error: '至少写一个时间，格式像 08:00' };
+  const mid = id || uid('med');
+  const exists = id ? getMed(id) : null;
+  if (exists) {
+    db.prepare('UPDATE meds SET name = ?, dose = ?, times = ?, note = ?, enabled = ? WHERE id = ?')
+      .run(nm, String(dose || '').slice(0, 40), JSON.stringify(ts), String(note || '').slice(0, 60), enabled ? 1 : 0, mid);
+  } else {
+    db.prepare('INSERT INTO meds (id, name, dose, times, note, enabled, created_at) VALUES (?,?,?,?,?,?,?)')
+      .run(mid, nm, String(dose || '').slice(0, 40), JSON.stringify(ts), String(note || '').slice(0, 60), enabled ? 1 : 0, nowISO());
+  }
+  return { ok: true, med: getMed(mid) };
+}
+export function deleteMed(id) {
+  try {
+    db.prepare('DELETE FROM meds WHERE id = ?').run(id);
+    db.prepare('DELETE FROM med_logs WHERE med_id = ?').run(id);
+    return true;
+  } catch { return false; }
+}
+/** 确认某一顿吃过了。slot 形如 "2026-10-19 08:00" */
+export function confirmMed(medId, slot) {
+  if (!getMed(medId)) return null;
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(String(slot || ''))) return null;
+  const at = nowISO();
+  try {
+    db.prepare('INSERT INTO med_logs (med_id, slot, at) VALUES (?,?,?) ON CONFLICT(med_id, slot) DO UPDATE SET at=excluded.at')
+      .run(String(medId), String(slot), at);
+    return { medId, slot, at };
+  } catch { return null; }
+}
+/** 某个日期（"2026-10-19"）确认过的药 */
+export function medLogsFor(datePrefix) {
+  try {
+    return db.prepare('SELECT med_id, slot, at FROM med_logs WHERE slot LIKE ?').all(String(datePrefix) + ' %');
+  } catch { return []; }
+}
 /* ---- 地名归属的缓存（哪个城市）---- */
 export function getPlaceGeo(name) {
   try {
@@ -1129,4 +1099,149 @@ export function allPlaceNames() {
   try {
     return db.prepare('SELECT DISTINCT name FROM places WHERE name IS NOT NULL').all().map((r) => r.name);
   } catch { return []; }
+}
+
+/* ---- 记事本 / 到点提醒 ----
+   老人说"5 分钟后提醒我关火"，存一条；页面轮询到点弹出来。
+   id 由本地生成，due_at 用毫秒时间戳（不依赖服务器时区）。 */
+function reminderOut(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    text: r.text,
+    dueAt: Number(r.due_at),
+    createdAt: Number(r.created_at),
+    doneAt: r.done_at == null ? null : Number(r.done_at),
+    session: r.session || 'default',
+  };
+}
+export function addReminder({ text = '', dueAt, session = 'default' } = {}) {
+  const t = String(text || '').trim().slice(0, 80);
+  const due = Number(dueAt);
+  if (!t || !Number.isFinite(due) || due <= 0) return null;
+  const id = uid('rem');
+  try {
+    db.prepare('INSERT INTO reminders (id, text, due_at, created_at, session) VALUES (?,?,?,?,?)')
+      .run(id, t, Math.round(due), Date.now(), String(session || 'default'));
+    return reminderOut(db.prepare('SELECT * FROM reminders WHERE id = ?').get(id));
+  } catch (e) {
+    log(`写 reminders 失败：${e.message}`);
+    return null;
+  }
+}
+export function listReminders({ includeDone = false } = {}) {
+  try {
+    const sql = includeDone
+      ? 'SELECT * FROM reminders ORDER BY done_at IS NOT NULL, due_at ASC'
+      : 'SELECT * FROM reminders WHERE done_at IS NULL ORDER BY due_at ASC';
+    return db.prepare(sql).all().map(reminderOut);
+  } catch { return []; }
+}
+export function dueReminders(now = Date.now()) {
+  try {
+    return db.prepare('SELECT * FROM reminders WHERE done_at IS NULL AND due_at <= ? ORDER BY due_at ASC')
+      .all(Number(now) || Date.now()).map(reminderOut);
+  } catch { return []; }
+}
+export function doneReminder(id) {
+  try {
+    const at = Date.now();
+    db.prepare('UPDATE reminders SET done_at = ? WHERE id = ? AND done_at IS NULL').run(at, String(id));
+    return reminderOut(db.prepare('SELECT * FROM reminders WHERE id = ?').get(String(id)));
+  } catch { return null; }
+}
+export function deleteReminder(id) {
+  try { db.prepare('DELETE FROM reminders WHERE id = ?').run(String(id)); return true; } catch { return false; }
+}
+
+/* ================================================================== *
+ * 家人远程：消息 + 每天对话总结
+ * ================================================================== */
+
+export function addFamilyMessage({ sender = 'family', kind = 'text', text = '' } = {}) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  const id = uid('fm');
+  db.prepare('INSERT INTO family_messages (id, sender, kind, text, created_at, delivered_at, read_at) VALUES (?,?,?,?,?,NULL,NULL)')
+    .run(id, String(sender), String(kind), s, nowISO());
+  return db.prepare('SELECT * FROM family_messages WHERE id = ?').get(id) || null;
+}
+
+export function getFamilyMessage(id) {
+  return db.prepare('SELECT * FROM family_messages WHERE id = ?').get(String(id)) || null;
+}
+
+export function listFamilyMessages(limit = 100) {
+  const n = Math.min(300, Math.max(1, Number(limit) || 100));
+  return db.prepare('SELECT * FROM family_messages ORDER BY created_at ASC, id ASC LIMIT ?').all(n);
+}
+
+/** 老人端要念的：家人发来的普通消息 + 点赞/回复通知，还没送过的 */
+export function pendingFamilyMessages(limit = 20) {
+  const n = Math.min(50, Math.max(1, Number(limit) || 20));
+  return db.prepare('SELECT * FROM family_messages WHERE sender = ? AND delivered_at IS NULL ORDER BY created_at ASC, id ASC LIMIT ?')
+    .all('family', n);
+}
+
+export function markFamilyMessagesDelivered(ids = []) {
+  const list = (Array.isArray(ids) ? ids : []).filter(Boolean).map(String);
+  if (!list.length) return 0;
+  const marks = list.map(() => '?').join(',');
+  return db.prepare(`UPDATE family_messages SET delivered_at = ? WHERE id IN (${marks}) AND delivered_at IS NULL`)
+    .run(nowISO(), ...list).changes;
+}
+
+export function markFamilyMessagesRead() {
+  return db.prepare('UPDATE family_messages SET read_at = ? WHERE sender = ? AND read_at IS NULL')
+    .run(nowISO(), 'elder').changes;
+}
+
+const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+export function dayOf(ts) {
+  return DAY_FMT.format(new Date(ts));
+}
+
+/** 某一天老人说过/记下的内容，给总结用 */
+export function dayContent(day = dayOf(Date.now())) {
+  const rows = db.prepare('SELECT statement, created_at FROM sentences ORDER BY created_at DESC LIMIT 800').all();
+  const sentences = rows.filter((r) => dayOf(r.created_at) === day).map((r) => r.statement).filter(Boolean);
+  const us = db.prepare('SELECT role, text, created_at FROM utterances ORDER BY created_at DESC LIMIT 1200').all()
+    .filter((r) => dayOf(r.created_at) === day);
+  let familyMessages = [];
+  try {
+    familyMessages = db.prepare('SELECT sender, kind, text, created_at FROM family_messages ORDER BY created_at DESC LIMIT 300').all()
+      .filter((r) => dayOf(r.created_at) === day)
+      .map((r) => ({ sender: r.sender, kind: r.kind, text: r.text }));
+  } catch { /* 表还没建 */ }
+  return {
+    sentences,
+    elderLines: us.filter((r) => r.role === 'elder').map((r) => r.text).filter(Boolean),
+    agentLines: us.filter((r) => r.role === 'agent').map((r) => r.text).filter(Boolean),
+    familyMessages,
+    turns: us.filter((r) => r.role === 'elder').length,
+  };
+}
+
+export function getDailySummary(day = dayOf(Date.now())) {
+  return db.prepare('SELECT * FROM daily_summaries WHERE day = ?').get(day) || null;
+}
+
+export function saveDailySummary(day, text) {
+  db.prepare(`INSERT INTO daily_summaries (day, text, generated_at, likes, liked, reply, reply_at)
+    VALUES (?,?,?,0,0,NULL,NULL)
+    ON CONFLICT(day) DO UPDATE SET text = excluded.text, generated_at = excluded.generated_at`)
+    .run(day, String(text || ''), nowISO());
+  return getDailySummary(day);
+}
+
+export function setDailyFeedback(day, { liked = false, reply = null } = {}) {
+  const cur = getDailySummary(day);
+  if (!cur) return null;
+  const nextLiked = liked ? 1 : cur.liked;
+  const nextLikes = liked && !cur.liked ? Number(cur.likes || 0) + 1 : Number(cur.likes || 0);
+  const nextReply = reply == null ? cur.reply : String(reply || '');
+  const replyAt = reply == null ? cur.reply_at : nowISO();
+  db.prepare('UPDATE daily_summaries SET likes = ?, liked = ?, reply = ?, reply_at = ? WHERE day = ?')
+    .run(nextLikes, nextLiked, nextReply, replyAt, day);
+  return getDailySummary(day);
 }

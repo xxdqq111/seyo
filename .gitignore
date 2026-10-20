@@ -1,5 +1,13 @@
-﻿backup/
+backup/
 data/
 model/
 node_modules/
+.venv/
 *.bak
+*.log
+*.zip
+.dsh-ops-update-*.lock
+config/*.local.json
+__pycache__/
+*.pyc
+.DS_Store
