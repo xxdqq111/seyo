@@ -14,7 +14,7 @@ import {
   healthSigns, isRequest, parseReminder,
 } from './text.mjs';
 import { contentQuestion, contentRemark, matchReaction } from './reactions.mjs';
-import { understand, severeText, judgeFamilyReply, judgeFamilyDirectSend, judgePeopleAliases } from './understand.mjs';
+import { understand, severeText, adviceText, judgeFamilyReply, judgeFamilyDirectSend, judgePeopleAliases } from './understand.mjs';
 import { log } from './util.mjs';
 import { llmConfig, speak as llmSpeak } from './llm.mjs';
 import { reply as agentReply, opening as agentOpening, checkIn as agentCheckIn, guessTimes as agentGuessTimes } from './agent.mjs';
@@ -1119,6 +1119,8 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
   // 严重求助：大模型判出来，或没模型时用危险词兜底。普通腰疼/不舒服不算。
   const emergency = said ? (said.emergency === true || severeText(raw)) : severeText(raw);
   const emergencyReason = String(said?.emergency_reason || (emergency ? raw.slice(0, 120) : ''));
+  // 求助/问办法时允许说得更具体、更长；普通闲聊仍然短。
+  const advice = emergency || (said ? (said.advice === true || adviceText(raw)) : adviceText(raw));
 
   /* 切句 / 情绪 / 人物·地点·时间·事件：以模型判断为准。
      模型不可用时 said=null，才继续用上面 analyze() 的正则结果。 */
@@ -1287,6 +1289,7 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
       text: raw,
       companion,
       healthHint,
+      advice,
       inviteTopic,
       family: familyRecent,
     });
@@ -1442,7 +1445,7 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
     }
   }
 
-  text2 = tidy(text2, (persona.max_chars || 60) + 40);
+  text2 = tidy(text2, advice ? 240 : (persona.max_chars || 60) + 40);
   const dm = String(text2).match(/(?:就说|(?:回|回复)(?:一句|一句儿|个话|他|她|您)?\s*[：:]|这么回\s*[：:]?)\s*[「“"]?([^」”"]{1,160})/);
   if (dm && dm[1]) {
     const clean = cleanFamilyDraft(dm[1]);
@@ -1469,6 +1472,7 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
     reply: text2,
     emergency,
     emergency_reason: emergencyReason,
+    advice,
     mode: companion ? 'companion' : 'normal',
     by: usedLLM && !usedLLM.error ? 'llm' : 'rules',
     llm: usedLLM,

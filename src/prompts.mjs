@@ -159,7 +159,7 @@ ${call}：你还记得你小时候我带你上公园吗
  * @param {string} o.healthHint 老人反复说身体不舒服时的提醒（安全兜底）
  * @param {string} o.inviteTopic 这一轮想引他讲的方向（约 10% 的轮次会带，空 = 不引导）
  */
-export function buildMessages({ persona, confirmed = [], story = '', history = [], text = '', companion = false, healthHint = '', inviteTopic = '', family = [] }) {
+export function buildMessages({ persona, confirmed = [], story = '', history = [], text = '', companion = false, healthHint = '', advice = false, inviteTopic = '', family = [] }) {
   const call = persona.elder_call || '爷爷';
 
   const lines = [];
@@ -209,8 +209,19 @@ export function buildMessages({ persona, confirmed = [], story = '', history = [
     ].join('\n');
   })();
 
+  const adviceBlock = advice ? `
+
+# 这一次是求助 —— 可以比平时说得多
+${call}现在不是闲聊，是在向你求助、问该怎么办。上面“一次一到三句、不超过 ${Number(persona.max_chars) || 45} 字”的规则，这一次可以让路。
+- 先接住他的难受/担心，再给 2 到 4 条具体、马上能做的建议。
+- 总共可以说 100 到 180 字，按“先做什么、再做什么、什么情况要叫人”讲清楚。
+- 不要诊断、不要开药、不要说“没事”；如果他持续加重，明确让他联系家人或打 120。
+- 用老人听得懂的口语，不要列表标题、不要一次抛太多问题；最后可以问一个简单确认。
+- 字数放宽不等于啰嗦：每一句都要有用。` : '';
+
   const system = [
     buildPersona(persona),
+    adviceBlock,
     '',
     '# 记忆',
     archive ? `（档案：${archive}）` : '',

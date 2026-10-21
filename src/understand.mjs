@@ -40,6 +40,12 @@ export function severeText(text = '') {
   return SEVERE_RE.test(String(text || ''));
 }
 
+/** 没有大模型时，判断是不是在求助/问办法（宽松一点，只用于放宽回复长度）。 */
+const ADVICE_RE = /(怎么办|咋办|怎么弄|该不该|要不要|能不能|可以吗|行不行|帮我|出个主意|给出主意|建议|吃什么药|吃啥药|去医院|看病|睡不着|失眠|头晕|头疼|血压|血糖|便秘|感冒|发烧|咳嗽|疼得|不舒服)/;
+export function adviceText(text = '') {
+  return ADVICE_RE.test(String(text || ''));
+}
+
 /** 从模型输出里抠 JSON 对象（它常输出不带引号的 {intent:tell}） */
 function parseJsonObject(text) {
   const s = String(text || '');
@@ -191,10 +197,16 @@ ${hist}
    · false：普通腰疼、腿疼、睡不着、有点累、心情不好、想念孩子、日常抱怨
    · 拿不准时 false —— 不要因为一句普通不舒服就报紧急警报
 
+14. advice —— 他是不是在向岁语**求助/问该怎么办**？true / false。
+   · true：问身体不舒服怎么办、该不该去医院、能不能吃药、睡不着/头晕/便秘怎么办、
+           生活上拿不定主意、让岁语出主意
+   · false：只是陈述往事、随口抱怨、普通寒暄、单纯问“你还记得吗”
+   · 这类可以回答得比平时长一点、具体一点，但仍不要诊断、不要开药。
+
 【输出格式】
 严格只输出一个**合法 JSON**，键和字符串都要加双引号。不要解释、不要代码块。
 
-{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"emergency":false,"emergency_reason":"","entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"clauses":[{"text":"我年轻时候在国棉三厂当挡车工","persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]}],"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
+{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"emergency":false,"emergency_reason":"","advice":false,"entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"clauses":[{"text":"我年轻时候在国棉三厂当挡车工","persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]}],"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
 
   return [
     { role: 'system', content: system },
@@ -290,6 +302,7 @@ export async function understand({ persona, text = '', history = [] }) {
     health,
     emergency: o.emergency === true,
     emergency_reason: String(o.emergency_reason || '').trim().slice(0, 120),
+    advice: o.advice === true,
     /* 实体：模型抽的比正则准得多（正则会把"时候穷"当人物、年份抽成 1853）。
        抽不出来就给空数组，engine 那边会退回 analyze() 的正则结果。 */
     entities: {

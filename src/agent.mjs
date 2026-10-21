@@ -19,13 +19,13 @@ import { parseJsonArray } from './json.mjs';
 /* ----------------------------------------------------------------------
    节点 1：主对话
    ---------------------------------------------------------------------- */
-export async function reply({ persona, confirmed = [], story = '', history = [], text = '', companion = false, healthHint = '', inviteTopic = '', family = [] }) {
+export async function reply({ persona, confirmed = [], story = '', history = [], text = '', companion = false, healthHint = '', advice = false, inviteTopic = '', family = [] }) {
   if (!llmConfig().available) return { error: '还没配大模型' };
 
-  const messages = buildMessages({ persona, confirmed, story, history, text, companion, healthHint, inviteTopic, family });
+  const messages = buildMessages({ persona, confirmed, story, history, text, companion, healthHint, advice, inviteTopic, family });
   return speak(messages, {
-    temperature: 1.15,
-    maxTokens: Math.max(200, Number(persona?.max_chars || 45) * 6),
+    temperature: advice ? 0.95 : 1.15,
+    maxTokens: advice ? 520 : Math.max(200, Number(persona?.max_chars || 45) * 6),
   });
 }
 
