@@ -322,6 +322,36 @@ button.mini.primary {
   background: #f3efe7;
 }
 
+/* ---------------- 紧急求助确认 ---------------- */
+.help-check {
+  position: fixed; inset: 0; z-index: 120;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(44, 30, 18, .46);
+}
+.help-check[hidden] { display: none; }
+.help-card {
+  width: min(520px, 100%);
+  padding: 28px 26px 22px;
+  border-radius: var(--r-lg);
+  background: #fffdf8;
+  border: 2px solid #d9553a;
+  box-shadow: 0 18px 60px rgba(70, 30, 15, .28);
+  text-align: center;
+}
+.help-title { font-size: 26px; font-weight: 800; color: #9e321d; }
+.help-reason { margin-top: 10px; font-size: 18px; line-height: 1.7; color: var(--ink); }
+.help-count { margin-top: 14px; font-size: 15px; color: #9a6a4a; }
+.help-count b { color: #b83a22; font-size: 20px; }
+.help-acts { display: flex; gap: 12px; margin-top: 22px; }
+.help-acts button {
+  flex: 1; min-height: 56px; border-radius: var(--r-md);
+  border: 1px solid var(--line); font: inherit; font-size: 18px; font-weight: 700; cursor: pointer;
+}
+.help-no { background: #fff; color: #6b5a48; }
+.help-yes { background: #b83a22; border-color: #b83a22; color: #fff; }
+.help-no:hover { background: #f6efe4; }
+.help-yes:hover { filter: brightness(1.06); }
+
 /* ---------------- 吃药提醒 ---------------- */
 .medbar {
   margin: 10px 0 0;

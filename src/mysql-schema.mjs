@@ -245,4 +245,16 @@ export const ACCOUNT_SCHEMA = [
     reply        LONGTEXT NULL,
     reply_at     VARCHAR(40) NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+
+  /* 老人主动求助 / 声音异常警报。家人端轮询 pending 的。 */
+  `CREATE TABLE IF NOT EXISTS alerts (
+    id              VARCHAR(64) NOT NULL PRIMARY KEY,
+    source          VARCHAR(32) NOT NULL DEFAULT 'self',
+    reason          VARCHAR(500) NOT NULL DEFAULT '',
+    detail          LONGTEXT NOT NULL,
+    status          VARCHAR(16) NOT NULL DEFAULT 'pending',
+    created_at      VARCHAR(40) NOT NULL,
+    acknowledged_at VARCHAR(40) NULL,
+    INDEX idx_alerts_status (status, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 ];

@@ -22,6 +22,7 @@ import {
   saveMed, deleteMed, confirmMed,
   addReminder, listReminders, dueReminders, doneReminder, deleteReminder,
   addFamilyMessage, getFamilyMessage, listFamilyMessages, pendingFamilyMessages, markFamilyMessagesDelivered, markFamilyMessagesRead,
+  addAlert, listAlerts, acknowledgeAlerts,
   getDailySummary, setDailyFeedback, dayOf,
 } from './store.mjs';
 import { handleTurn, opening, getPersona, setPersona, analyze, watchCheck, notePoll, ackSpoken, judgeTimes, watchState, watchConfigure, watchClearLog, watchSetMood, watchResetConfig, recentHistory, buildDailySummary, rememberFamilyMessage, resolvePeopleAliases, clearSessions } from './engine.mjs';
@@ -221,6 +222,28 @@ async function apiInner(req, res, pathname, query) {
       if (m && !m.delivered_at) rememberFamilyMessage(sessionId, m);
     }
     return json(res, 200, { ok: true, count: markFamilyMessagesDelivered(ids) });
+  }
+
+  /* ---------------- 求助警报 ---------------- */
+  if (pathname === '/api/alerts' && method === 'GET') {
+    return json(res, 200, {
+      items: listAlerts({
+        status: String(query.get('status') || ''),
+        limit: query.get('limit') || 30,
+      }),
+    });
+  }
+  if (pathname === '/api/alerts' && method === 'POST') {
+    const item = addAlert({
+      source: String(body.source || 'self').slice(0, 32),
+      reason: String(body.reason || '').slice(0, 500),
+      detail: String(body.detail || '').slice(0, 5000),
+    });
+    return json(res, 200, { ok: true, item });
+  }
+  if (pathname === '/api/alerts/ack' && method === 'POST') {
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    return json(res, 200, { ok: true, count: acknowledgeAlerts(ids) });
   }
 
   /* ---------------- 家人远程：当天总结 ---------------- */

@@ -35,6 +35,25 @@ main > .wrap { padding-bottom: var(--sp-6); display: flex; flex-direction: colum
   color: #7a5a1c;
 }
 .banner b { color: var(--brand); }
+.alarm-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  border-radius: var(--r-md);
+  padding: 14px 18px;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  background: #fff0ec;
+  border: 2px solid #d9553a;
+  color: #8a2f1c;
+  box-shadow: 0 4px 18px rgba(180, 50, 30, .12);
+}
+.alarm-banner[hidden] { display: none; }
+.alarm-banner b { color: #b33a24; font-size: 17px; }
+.alarm-banner #alarmText { margin-top: 2px; }
+.alarm-banner button {
+  flex: 0 0 auto; min-height: 38px; padding: 0 16px;
+  border: 1px solid #d9553a; border-radius: 8px;
+  background: #d9553a; color: #fff; font: inherit; cursor: pointer;
+}
 #errBox {
   background: var(--danger-soft);
   border-color: var(--danger-line);

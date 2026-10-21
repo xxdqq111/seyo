@@ -14,7 +14,7 @@ import {
   healthSigns, isRequest, parseReminder,
 } from './text.mjs';
 import { contentQuestion, contentRemark, matchReaction } from './reactions.mjs';
-import { understand, judgeFamilyReply, judgeFamilyDirectSend, judgePeopleAliases } from './understand.mjs';
+import { understand, severeText, judgeFamilyReply, judgeFamilyDirectSend, judgePeopleAliases } from './understand.mjs';
 import { log } from './util.mjs';
 import { llmConfig, speak as llmSpeak } from './llm.mjs';
 import { reply as agentReply, opening as agentOpening, checkIn as agentCheckIn, guessTimes as agentGuessTimes } from './agent.mjs';
@@ -1116,6 +1116,9 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
      现在一次模型调用全判完，正则只在**没配模型 / 调不通**时兜底（含离线自检）。
      ================================================================== */
   const said = await understand({ persona, text: raw, history: sess.history.slice(-6) });
+  // 严重求助：大模型判出来，或没模型时用危险词兜底。普通腰疼/不舒服不算。
+  const emergency = said ? (said.emergency === true || severeText(raw)) : severeText(raw);
+  const emergencyReason = String(said?.emergency_reason || (emergency ? raw.slice(0, 120) : ''));
 
   /* 切句 / 情绪 / 人物·地点·时间·事件：以模型判断为准。
      模型不可用时 said=null，才继续用上面 analyze() 的正则结果。 */
@@ -1464,6 +1467,8 @@ export async function handleTurn({ text, sessionId = 'default' } = {}) {
 
   return {
     reply: text2,
+    emergency,
+    emergency_reason: emergencyReason,
     mode: companion ? 'companion' : 'normal',
     by: usedLLM && !usedLLM.error ? 'llm' : 'rules',
     llm: usedLLM,

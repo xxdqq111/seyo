@@ -907,7 +907,7 @@ export function resetAll({ keepPersona = true } = {}) {
     'people', 'times', 'places', 'events',
     'photos', 'timeline_notes',
     'meds', 'med_logs', 'reminders',
-    'family_messages', 'daily_summaries',
+    'family_messages', 'daily_summaries', 'alerts',
   ];
   for (const t of tables) db.exec(`DELETE FROM ${t}`);
   // 这两项是"上一次对话"的缓存：不清的话重置后开场白仍会避开旧话，甚至重复旧内容
@@ -1194,6 +1194,37 @@ export function markFamilyMessagesDelivered(ids = []) {
 export function markFamilyMessagesRead() {
   return db.prepare('UPDATE family_messages SET read_at = ? WHERE sender = ? AND read_at IS NULL')
     .run(nowISO(), 'elder').changes;
+}
+
+/* ------------------------------------------------------------------ *
+ * 警报：老人主动求助 / 声音异常且摄像头没人
+ * ------------------------------------------------------------------ */
+
+export function addAlert({ source = 'self', reason = '', detail = '' } = {}) {
+  const id = uid('al');
+  db.prepare('INSERT INTO alerts (id, source, reason, detail, status, created_at, acknowledged_at) VALUES (?,?,?,?,?,?,NULL)')
+    .run(id, String(source).slice(0, 32), String(reason).slice(0, 500), String(detail || '').slice(0, 5000), 'pending', nowISO());
+  return getAlert(id);
+}
+
+export function getAlert(id) {
+  return db.prepare('SELECT * FROM alerts WHERE id = ?').get(String(id)) || null;
+}
+
+export function listAlerts({ status = '', limit = 20 } = {}) {
+  const n = Math.min(100, Math.max(1, Number(limit) || 20));
+  const st = String(status || '').trim();
+  return st
+    ? db.prepare('SELECT * FROM alerts WHERE status = ? ORDER BY created_at DESC, id DESC LIMIT ?').all(st, n)
+    : db.prepare('SELECT * FROM alerts ORDER BY created_at DESC, id DESC LIMIT ?').all(n);
+}
+
+export function acknowledgeAlerts(ids = []) {
+  const list = (Array.isArray(ids) ? ids : []).filter(Boolean).map(String);
+  if (!list.length) return 0;
+  const marks = list.map(() => '?').join(',');
+  return db.prepare(`UPDATE alerts SET status = 'acknowledged', acknowledged_at = ? WHERE id IN (${marks}) AND status = 'pending'`)
+    .run(nowISO(), ...list).changes;
 }
 
 const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });

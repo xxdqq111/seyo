@@ -66,6 +66,14 @@
     </div>
   </div>
 
+  <div class="alarm-banner" id="alarmBanner" hidden>
+    <div>
+      <b>老人可能需要帮助</b>
+      <div id="alarmText"></div>
+    </div>
+    <button id="alarmAck">我看到了</button>
+  </div>
+
   <div class="banner" id="banner" hidden></div>
   <div class="banner" id="errBox" hidden style="background:#fff0ec;border-color:#f0c4b4;color:#8a3a1c"></div>
   <div class="cards" id="cards"></div>
@@ -1354,6 +1362,46 @@ $('#famResetAll').onclick = async () => {
   // 全局兜底：任何漏网的错都写到页面上，不让你看到白屏
   window.addEventListener('error', (e) => showError('页面脚本', e.error || e.message));
   window.addEventListener('unhandledrejection', (e) => showError('异步操作', e.reason));
+
+  /* ---------------- 老人求助警报 ---------------- */
+  let ALERTS = [];
+  const alarmBanner = $('#alarmBanner');
+  const alarmText = $('#alarmText');
+
+  function renderAlerts() {
+    if (!alarmBanner) return;
+    if (!ALERTS.length) { alarmBanner.hidden = true; return; }
+    const a = ALERTS[0];
+    const src = a.source === 'noise' ? '听到突然响声，摄像头没看到人' : '老人说自己情况很严重';
+    const when = a.created_at ? new Date(a.created_at).toLocaleString('zh-CN', {
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    }) : '';
+    alarmText.textContent = `${src}。${a.reason ? '他说：' + a.reason : ''} ${when ? '（' + when + '）' : ''}`;
+    alarmBanner.hidden = false;
+  }
+
+  async function pollAlerts() {
+    try {
+      const r = await api('/api/alerts?status=pending&limit=10');
+      ALERTS = r.items || [];
+      renderAlerts();
+    } catch { /* 登录失效会由 api 跳转 */ }
+  }
+
+  $('#alarmAck').onclick = async () => {
+    if (!ALERTS.length) return;
+    try {
+      await api('/api/alerts/ack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ALERTS.map((a) => a.id) }),
+      });
+      ALERTS = [];
+      renderAlerts();
+    } catch (e) { showError('确认警报', e); }
+  };
+
+  pollAlerts();
+  setInterval(pollAlerts, 5000);
 
   // 窗口大小变了要重画，否则地图会被拉变形
   let resizeTimer = null;

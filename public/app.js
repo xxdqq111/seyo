@@ -237,6 +237,8 @@ function speak(text) {
   if (S.muted) return;
   const clean = String(text || '').replace(/[（(][^）)]*[）)]/g, '').trim();
   if (!clean) return;
+  // 环境声音监测用：这段时间内是岁语自己在说话，别把喇叭声当异响
+  S.speakingUntil = Math.max(S.speakingUntil || 0, Date.now() + Math.max(1500, clean.length * 260));
   stopSpeaking();
 
   // 选了系统语音就直接走那条
@@ -413,8 +415,129 @@ function photoBubble(photos) {
 }
 
 /* ======================================================================
-   一轮对话
+   紧急求助确认
    ====================================================================== */
+
+/** 30 秒没有选择，默认按“需要帮助”处理。 */
+async function showHelpPrompt(source = 'self', detail = '') {
+  const box = $('helpCheck');
+  if (!box || S.helpOpen) return;
+  if (S.helpCooldownUntil && Date.now() < S.helpCooldownUntil) return;
+  S.helpOpen = true;
+
+  const isNoise = source === 'noise';
+  $('helpTitle').textContent = isNoise ? '您需要帮助吗？' : '您需要我叫家人吗？';
+  $('helpReason').textContent = isNoise
+    ? '我听到一声很大的响动，摄像头前没有看到人。您还好吗？'
+    : '您刚说的这句话听起来很严重。要我马上帮您叫家里人吗？';
+
+  let left = 30;
+  $('helpCount').textContent = String(left);
+  box.hidden = false;
+  speak(isNoise ? '刚才响了一声，您还好吗？需要我帮您叫家里人吗？' : '您需要我帮您叫家里人吗？');
+
+  let finished = false;
+  const finish = async (need, how = 'button') => {
+    if (finished) return;
+    finished = true;
+    clearInterval(countTimer);
+    clearTimeout(timeout);
+    S.helpOpen = false;
+    S.helpCooldownUntil = Date.now() + 60000;
+    box.hidden = true;
+    if (!need) {
+      bubble('me', '好，那您先歇着。有不舒服马上喊我。');
+      speak('好，那您先歇着。有不舒服马上喊我。');
+      return;
+    }
+    try {
+      await api('/api/alerts', {
+        source: isNoise ? 'noise' : 'self',
+        reason: detail,
+        detail: `触发方式：${how === 'timeout' ? '30 秒未回应，默认需要帮助' : '老人选择了需要帮助'}`,
+      });
+    } catch (e) {
+      console.warn('警报发送失败：', e.message);
+    }
+    bubble('me', '好，我这就告诉家里人。您别着急，我陪着您。');
+    speak('好，我这就告诉家里人。您别着急，我陪着您。');
+  };
+
+  const countTimer = setInterval(() => {
+    left -= 1;
+    if (left < 0) left = 0;
+    $('helpCount').textContent = String(left);
+  }, 1000);
+  const timeout = setTimeout(() => finish(true, 'timeout'), 30000);
+
+  $('helpYes').onclick = () => finish(true, 'button');
+  $('helpNo').onclick = () => finish(false, 'button');
+}
+
+/* ======================================================================
+   突然响声监测
+   ----------------------------------------------------------------------
+   只在本机做电平判断，不上传录音。
+   只有“突然很大的声音 + 最近一帧摄像头没看到人”才弹求助确认；
+   普通说话、电视声不会触发；岁语自己说话时也不判。
+   ====================================================================== */
+let ambientStream = null;
+let ambientCtx = null;
+let ambientTimer = null;
+let ambientBase = 0.02;
+let ambientLoud = 0;
+let ambientLastAlert = 0;
+
+async function startAmbientWatch() {
+  if (ambientStream || !navigator.mediaDevices?.getUserMedia) return;
+  try {
+    ambientStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+    ambientCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ambientCtx.createMediaStreamSource(ambientStream);
+    const analyser = ambientCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    src.connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+    ambientTimer = setInterval(() => {
+      if (document.hidden) return;
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i += 1) {
+        const v = (buf[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / buf.length);
+      const now = Date.now();
+      // 岁语自己在说话、老人正在按住说话：不判
+      if (now < (S.speakingUntil || 0) || S.listening) {
+        ambientBase = ambientBase * 0.98 + rms * 0.02;
+        ambientLoud = 0;
+        return;
+      }
+      const spike = rms > 0.3 && rms > ambientBase * 4;
+      if (spike) ambientLoud += 1;
+      else ambientLoud = 0;
+      ambientBase = ambientBase * 0.995 + rms * 0.005;
+
+      if (ambientLoud < 2 || now - ambientLastAlert < 60000) return;
+      const v = S.lastVision;
+      if (!S.cameraOn || !v || now - v.at > 120000 || v.hasPerson) return;
+      ambientLastAlert = now;
+      ambientLoud = 0;
+      showHelpPrompt('noise', '突然的响声，且摄像头没有识别到人');
+    }, 150);
+    if (ambientCtx.state === 'suspended') await ambientCtx.resume();
+  } catch (e) {
+    console.warn('环境声音监测没启动：', e.name);
+  }
+}
+
+/* 第一次用户手势后再申请麦克风，避免一打开页面就弹权限框 */
+document.addEventListener('pointerdown', () => { startAmbientWatch(); }, { once: true });
+
+
 async function say(raw) {
   const text = String(raw || '').trim();
   if (!text || S.busy) return;
@@ -451,6 +574,9 @@ async function say(raw) {
 
     render(r);
     speak(r.reply);
+    if (r.emergency) {
+      setTimeout(() => showHelpPrompt('self', r.emergency_reason || r.heard?.cleaned || ''), 1200);
+    }
   } catch (e) {
     bubble('me', '哎，我这边好像卡住了，您再说一遍行吗？');
     status('idle', '不太顺，稍后再试');
@@ -1056,6 +1182,13 @@ async function boot() {
       });
       // 服务端会告诉我们下次隔多久 —— 情绪不对时它会调快
       if (r?.watch) S.watch = r.watch;
+      if (r && !r.error) {
+        S.lastVision = {
+          at: Date.now(),
+          hasPerson: r.uncertain === false && Boolean(r.box || (Number(r.faces) || 0) > 0),
+          note: r.note || '',
+        };
+      }
       //  它可能已经顺手判过"该不该开口"了，有就直接显示，不用等轮询
       if (r?.proactive) showProactive(r.proactive);
     } catch (e) {

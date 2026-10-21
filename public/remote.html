@@ -69,6 +69,15 @@
       <p class="sub" id="subtitle"></p>
     </div>
 
+    <!-- 老人求助警报 -->
+    <div class="alarm-banner" id="alarmBanner" hidden>
+      <div>
+        <b>老人可能需要帮助</b>
+        <div id="alarmText"></div>
+      </div>
+      <button id="alarmAck">我看到了</button>
+    </div>
+
     <!-- 老人心情不好时，这里会出现提醒 -->
     <div class="mood-alert" id="moodAlert" hidden>
       
@@ -1559,6 +1568,42 @@ $('#famResetAll').onclick = async () => {
   refreshMoodAlert();
   setInterval(refreshMoodAlert, 20000);
   setInterval(() => { if (!$('#p-messages').hidden) loadMessages(); }, 8000);
+
+  /* ---------------- 老人求助警报 ---------------- */
+  let ALERTS = [];
+  const alarmBanner = $('#alarmBanner');
+  const alarmText = $('#alarmText');
+  function renderAlerts() {
+    if (!alarmBanner) return;
+    if (!ALERTS.length) { alarmBanner.hidden = true; return; }
+    const a = ALERTS[0];
+    const src = a.source === 'noise' ? '听到突然响声，摄像头没看到人' : '老人说自己情况很严重';
+    const when = a.created_at ? new Date(a.created_at).toLocaleString('zh-CN', {
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    }) : '';
+    alarmText.textContent = `${src}。${a.reason ? '他说：' + a.reason : ''} ${when ? '（' + when + '）' : ''}`;
+    alarmBanner.hidden = false;
+  }
+  async function pollAlerts() {
+    try {
+      const r = await api('/api/alerts?status=pending&limit=10');
+      ALERTS = r.items || [];
+      renderAlerts();
+    } catch { /* ignore */ }
+  }
+  $('#alarmAck').onclick = async () => {
+    if (!ALERTS.length) return;
+    try {
+      await api('/api/alerts/ack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ALERTS.map((a) => a.id) }),
+      });
+      ALERTS = [];
+      renderAlerts();
+    } catch (e) { showError('确认警报', e); }
+  };
+  pollAlerts();
+  setInterval(pollAlerts, 5000);
 </script>
 <footer class="site-foot">
   <div class="wrap">

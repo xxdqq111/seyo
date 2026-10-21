@@ -34,6 +34,12 @@ export const INTENTS = ['tell', 'ask', 'mood', 'ack', 'recall', 'command'];
 export const SLOTS = ['when', 'where', 'who', 'what', 'how'];
 export const MOOD_LEVELS = ['low', 'uneasy', 'flat', 'warm'];
 
+/** 没有大模型时的严重求助兜底：只认明确的危险说法，普通不舒服不报。 */
+const SEVERE_RE = /(胸(口|部).{0,6}(疼|痛|闷|压|紧)|喘不上气|喘不过气|呼吸困难|透不过气|憋得慌|晕倒|昏过去|不省人事|摔(倒|了).{0,6}(起不来|爬不起来|地上)|起不来|流血不止|止不住血|大出血|吐血|中风|心梗|心脏病发作|叫救护车|打\s*120|救命|快不行了|要不行了|噎住|卡住喉咙|窒息)/;
+export function severeText(text = '') {
+  return SEVERE_RE.test(String(text || ''));
+}
+
 /** 从模型输出里抠 JSON 对象（它常输出不带引号的 {intent:tell}） */
 function parseJsonObject(text) {
   const s = String(text || '');
@@ -179,10 +185,16 @@ ${hist}
      → [{"text":"我小时候在杭州长大","persons":[],"places":["杭州"],"events":[],"times":[{"raw":"小时候","label":"童年","year":null}]},
         {"text":"那时候穷，吃不饱","persons":[],"places":[],"events":[],"times":[{"raw":"那时候","label":"那时候","year":null}]}]
 
+13. emergency —— 是不是**非常严重的求助/危险信号**？true / false，并给一句简短原因。
+   · true：胸痛、胸口压得慌、喘不上气、呼吸困难、晕倒、昏过去、摔倒起不来、
+           流血不止、吐血、中风、心梗、噎住、叫救护车/打 120、说“救命”“我不行了”
+   · false：普通腰疼、腿疼、睡不着、有点累、心情不好、想念孩子、日常抱怨
+   · 拿不准时 false —— 不要因为一句普通不舒服就报紧急警报
+
 【输出格式】
 严格只输出一个**合法 JSON**，键和字符串都要加双引号。不要解释、不要代码块。
 
-{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"clauses":[{"text":"我年轻时候在国棉三厂当挡车工","persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]}],"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
+{"intent":"tell","memorable":true,"request":false,"correction":null,"fragment":false,"slot":"","mood":"flat","health":[],"emergency":false,"emergency_reason":"","entities":{"persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]},"clauses":[{"text":"我年轻时候在国棉三厂当挡车工","persons":[],"places":["国棉三厂"],"events":["当挡车工"],"times":[{"raw":"年轻时候","label":"青年时期","year":null}]}],"statement":"我年轻时候在国棉三厂当挡车工","scope":"major","polished":"年轻时在国棉三厂当挡车工"}`;
 
   return [
     { role: 'system', content: system },
@@ -276,6 +288,8 @@ export async function understand({ persona, text = '', history = [] }) {
     slot: o.fragment === true ? slot : '',
     mood,
     health,
+    emergency: o.emergency === true,
+    emergency_reason: String(o.emergency_reason || '').trim().slice(0, 120),
     /* 实体：模型抽的比正则准得多（正则会把"时候穷"当人物、年份抽成 1853）。
        抽不出来就给空数组，engine 那边会退回 analyze() 的正则结果。 */
     entities: {

@@ -168,6 +168,19 @@
 <video id="cam" playsinline muted hidden></video>
 <canvas id="camCanvas" width="320" height="240" hidden></canvas>
 
+<!-- 严重求助 / 声音异常：老人确认是否需要帮助（30 秒后默认需要） -->
+<div class="help-check" id="helpCheck" hidden>
+  <div class="help-card" role="alertdialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-title" id="helpTitle">您需要帮助吗？</div>
+    <div class="help-reason" id="helpReason"></div>
+    <div class="help-count"><b id="helpCount">30</b> 秒后默认需要帮助</div>
+    <div class="help-acts">
+      <button class="help-no" id="helpNo" type="button">不用，我没事</button>
+      <button class="help-yes" id="helpYes" type="button">需要帮助</button>
+    </div>
+  </div>
+</div>
+
 <!-- 吃药提醒（到点弹出来，没确认就一直提醒） -->
 <div class="med-remind" id="medRemind" hidden>
   <div class="med-remind-card">

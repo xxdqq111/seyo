@@ -301,4 +301,5 @@ if (fails.length) {
   console.log(`全部通过：${pass} 项 —— 页面能正常渲染`);
 }
 console.log('─'.repeat(56));
-process.exitCode = fails.length ? 1 : 0;
+// 页面里有警报轮询的 setInterval；测试跑完直接退出，别让它一直挂着
+process.exit(fails.length ? 1 : 0);
